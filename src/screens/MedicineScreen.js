@@ -19,6 +19,7 @@ import {
   Dialog,
   Portal,
   TextInput,
+  ActivityIndicator,
 } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
@@ -45,6 +46,10 @@ export default function MedicineScreen() {
   const [medicineName, setMedicineName] = useState('');
   const [dosage, setDosage] = useState('');
   const [frequency, setFrequency] = useState('');
+  const [recognizing, setRecognizing] = useState(false);
+  const [editingMedicine, setEditingMedicine] = useState(null); // 正在编辑的药品
+  const [medicineDetails, setMedicineDetails] = useState(null); // 药品详细信息（来自数据库）
+  const [detailsDialogVisible, setDetailsDialogVisible] = useState(false); // 详情对话框
 
   useEffect(() => {
     loadMedicines();
@@ -116,10 +121,30 @@ export default function MedicineScreen() {
         
         // 使用第一张图片进行OCR识别
         if (selectedImages.length === 0 && result.assets[0].uri) {
-          const recognizedData = await MedicineService.recognizeMedicine(result.assets[0].uri);
-          setMedicineName(recognizedData.name || '');
-          setDosage(recognizedData.dosage || '');
-          setFrequency(recognizedData.frequency || '');
+          setRecognizing(true);
+          try {
+            const recognizedData = await MedicineService.recognizeMedicine(result.assets[0].uri);
+            setMedicineName(recognizedData.name || '');
+            setDosage(recognizedData.dosage || '');
+            setFrequency(recognizedData.frequency || '');
+            
+            // 如果查询到详细的药品信息，保存起来
+            if (recognizedData.hasDetails) {
+              setMedicineDetails(recognizedData);
+            }
+            
+            if (!recognizedData.name) {
+              Alert.alert('提示', '未能识别出药品信息，请手动输入');
+            } else if (recognizedData.hasDetails) {
+              // 如果查询到详细信息，提示用户
+              Alert.alert('识别成功', '已识别药品信息并查询到详细使用说明，可点击"查看详情"查看');
+            }
+          } catch (error) {
+            console.error('OCR识别错误:', error);
+            Alert.alert('识别失败', error.message || '无法识别图片，请手动输入药品信息');
+          } finally {
+            setRecognizing(false);
+          }
         }
         
         setDialogVisible(true);
@@ -127,6 +152,7 @@ export default function MedicineScreen() {
     } catch (error) {
       Alert.alert('错误', '拍摄失败，请重试');
       console.error('相机错误:', error);
+      setRecognizing(false);
     }
   };
 
@@ -167,10 +193,30 @@ export default function MedicineScreen() {
         
         // 使用第一张图片进行OCR识别
         if (selectedImages.length === 0 && result.assets[0].uri) {
-          const recognizedData = await MedicineService.recognizeMedicine(result.assets[0].uri);
-          setMedicineName(recognizedData.name || '');
-          setDosage(recognizedData.dosage || '');
-          setFrequency(recognizedData.frequency || '');
+          setRecognizing(true);
+          try {
+            const recognizedData = await MedicineService.recognizeMedicine(result.assets[0].uri);
+            setMedicineName(recognizedData.name || '');
+            setDosage(recognizedData.dosage || '');
+            setFrequency(recognizedData.frequency || '');
+            
+            // 如果查询到详细的药品信息，保存起来
+            if (recognizedData.hasDetails) {
+              setMedicineDetails(recognizedData);
+            }
+            
+            if (!recognizedData.name) {
+              Alert.alert('提示', '未能识别出药品信息，请手动输入');
+            } else if (recognizedData.hasDetails) {
+              // 如果查询到详细信息，提示用户
+              Alert.alert('识别成功', '已识别药品信息并查询到详细使用说明，可点击"查看详情"查看');
+            }
+          } catch (error) {
+            console.error('OCR识别错误:', error);
+            Alert.alert('识别失败', error.message || '无法识别图片，请手动输入药品信息');
+          } finally {
+            setRecognizing(false);
+          }
         }
         
         setDialogVisible(true);
@@ -178,6 +224,7 @@ export default function MedicineScreen() {
     } catch (error) {
       Alert.alert('错误', '选择图片失败，请重试');
       console.error('相册错误:', error);
+      setRecognizing(false);
     }
   };
 
@@ -192,28 +239,55 @@ export default function MedicineScreen() {
       return;
     }
 
-    const medicine = {
-      id: Date.now().toString(),
-      name: medicineName,
-      dosage,
-      frequency,
-      images: selectedImages, // 保存多张图片
-      image: selectedImages[0], // 保留第一张作为主图（兼容旧数据）
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      if (editingMedicine) {
+        // 更新现有药品
+        const updatedMedicine = {
+          name: medicineName,
+          dosage,
+          frequency,
+          images: selectedImages,
+          image: selectedImages[0],
+        };
+        await MedicineService.updateMedicine(editingMedicine.id, updatedMedicine);
+        Alert.alert('成功', '药品信息已更新，提醒已重新设置');
+      } else {
+        // 添加新药品
+        const medicine = {
+          id: Date.now().toString(),
+          name: medicineName,
+          dosage,
+          frequency,
+          images: selectedImages,
+          image: selectedImages[0],
+          createdAt: new Date().toISOString(),
+        };
+        await MedicineService.saveMedicine(medicine);
+        await MedicineService.scheduleReminders(medicine);
+        Alert.alert('成功', '药品已添加，提醒已设置');
+      }
+      
+      setDialogVisible(false);
+      setSourceDialogVisible(false);
+      setSelectedImages([]);
+      setMedicineName('');
+      setDosage('');
+      setFrequency('');
+      setEditingMedicine(null);
+      
+      loadMedicines();
+    } catch (error) {
+      Alert.alert('错误', error.message || '操作失败，请重试');
+    }
+  };
 
-    await MedicineService.saveMedicine(medicine);
-    await MedicineService.scheduleReminders(medicine);
-    
-    setDialogVisible(false);
-    setSourceDialogVisible(false);
-    setSelectedImages([]);
-    setMedicineName('');
-    setDosage('');
-    setFrequency('');
-    
-    loadMedicines();
-    Alert.alert('成功', '药品已添加，提醒已设置');
+  const editMedicine = (medicine) => {
+    setEditingMedicine(medicine);
+    setMedicineName(medicine.name || '');
+    setDosage(medicine.dosage || '');
+    setFrequency(medicine.frequency || '');
+    setSelectedImages(medicine.images || (medicine.image ? [medicine.image] : []));
+    setDialogVisible(true);
   };
 
   const removeImage = (index) => {
@@ -240,9 +314,35 @@ export default function MedicineScreen() {
     );
   };
 
+  const exportMedicines = async () => {
+    try {
+      const result = await ExportService.exportMedicines('csv');
+      if (result.success) {
+        Alert.alert('成功', result.message || '药品信息已导出');
+      }
+    } catch (error) {
+      Alert.alert('错误', '导出失败，请重试');
+      console.error('导出药品信息失败:', error);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
+        {medicines.length > 0 && (
+          <Card style={styles.exportCard}>
+            <Card.Content>
+              <Button
+                mode="outlined"
+                icon="download"
+                onPress={exportMedicines}
+                style={styles.exportButton}
+              >
+                导出药品信息 (CSV)
+              </Button>
+            </Card.Content>
+          </Card>
+        )}
         {medicines.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="medical-outline" size={64} color={theme.colors.textSecondary} />
@@ -275,9 +375,20 @@ export default function MedicineScreen() {
                 <Card.Content>
                   <View style={styles.medicineHeader}>
                     <Title style={styles.medicineName}>{medicine.name}</Title>
-                    <TouchableOpacity onPress={() => deleteMedicine(medicine.id)}>
-                      <Ionicons name="trash-outline" size={24} color={theme.colors.error} />
-                    </TouchableOpacity>
+                    <View style={styles.medicineActions}>
+                      <TouchableOpacity 
+                        onPress={() => editMedicine(medicine)}
+                        style={styles.actionButton}
+                      >
+                        <Ionicons name="create-outline" size={24} color={theme.colors.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        onPress={() => deleteMedicine(medicine.id)}
+                        style={styles.actionButton}
+                      >
+                        <Ionicons name="trash-outline" size={24} color={theme.colors.error} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                   {images.length > 1 && (
                     <Chip icon="images" style={styles.chip}>
@@ -340,10 +451,17 @@ export default function MedicineScreen() {
             setMedicineName('');
             setDosage('');
             setFrequency('');
+            setEditingMedicine(null);
           }}
         >
-          <Dialog.Title>确认药品信息</Dialog.Title>
+          <Dialog.Title>{editingMedicine ? '编辑药品信息' : '确认药品信息'}</Dialog.Title>
           <Dialog.Content>
+            {recognizing && (
+              <View style={styles.recognizingContainer}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <Text style={styles.recognizingText}>正在识别药品信息...</Text>
+              </View>
+            )}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.previewScrollView}>
               {selectedImages.map((uri, index) => (
                 <View key={index} style={styles.previewImageContainer}>
@@ -390,6 +508,16 @@ export default function MedicineScreen() {
               style={styles.input}
               mode="outlined"
             />
+            {medicineDetails && medicineDetails.hasDetails && (
+              <Button
+                mode="outlined"
+                icon="information"
+                onPress={() => setDetailsDialogVisible(true)}
+                style={styles.detailsButton}
+              >
+                查看详细使用说明
+              </Button>
+            )}
           </Dialog.Content>
           <Dialog.Actions>
             <Button 
@@ -399,11 +527,100 @@ export default function MedicineScreen() {
                 setMedicineName('');
                 setDosage('');
                 setFrequency('');
+                setEditingMedicine(null);
+                setMedicineDetails(null);
               }}
             >
               取消
             </Button>
-            <Button onPress={saveMedicine} mode="contained">保存</Button>
+            <Button onPress={saveMedicine} mode="contained">
+              {editingMedicine ? '更新' : '保存'}
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* 药品详情对话框 */}
+        <Dialog
+          visible={detailsDialogVisible}
+          onDismiss={() => setDetailsDialogVisible(false)}
+        >
+          <Dialog.Title>药品详细信息</Dialog.Title>
+          <Dialog.Content>
+            <ScrollView style={styles.detailsScrollView}>
+              {medicineDetails && (
+                <>
+                  {medicineDetails.specification && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>规格：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.specification}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.manufacturer && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>生产厂家：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.manufacturer}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.approvalNumber && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>批准文号：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.approvalNumber}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.indication && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>适应症：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.indication}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.usage && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>用法用量：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.usage}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.contraindication && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>禁忌：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.contraindication}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.sideEffects && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>不良反应：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.sideEffects}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.precautions && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>注意事项：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.precautions}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.interactions && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>药物相互作用：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.interactions}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.storage && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>贮藏：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.storage}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.description && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>说明书：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.description}</Text>
+                    </View>
+                  )}
+                </>
+              )}
+            </ScrollView>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDetailsDialogVisible(false)}>关闭</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -460,6 +677,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     flex: 1,
   },
+  medicineActions: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+  },
+  actionButton: {
+    padding: theme.spacing.xs,
+  },
   medicineInfo: {
     flexDirection: 'row',
     marginTop: theme.spacing.sm,
@@ -492,6 +716,25 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: theme.borderRadius.sm,
   },
+  recognizingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+  },
+  recognizingText: {
+    marginLeft: theme.spacing.sm,
+    color: theme.colors.primary,
+    fontSize: 14,
+  },
+  exportCard: {
+    marginBottom: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+  },
+  exportButton: {
+    borderRadius: theme.borderRadius.md,
+  },
   removeImageButton: {
     position: 'absolute',
     top: -8,
@@ -507,6 +750,27 @@ const styles = StyleSheet.create({
   },
   input: {
     marginBottom: theme.spacing.sm,
+  },
+  detailsButton: {
+    marginTop: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+  },
+  detailsScrollView: {
+    maxHeight: 400,
+  },
+  detailItem: {
+    marginBottom: theme.spacing.md,
+  },
+  detailLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+    marginBottom: theme.spacing.xs,
+  },
+  detailValue: {
+    fontSize: 14,
+    color: theme.colors.text,
+    lineHeight: 20,
   },
 });
 

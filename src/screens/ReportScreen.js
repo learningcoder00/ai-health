@@ -20,6 +20,8 @@ import { LineChart, BarChart } from 'react-native-chart-kit';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme';
 import { ReportService } from '../services/ReportService';
+import { ExportService } from '../services/ExportService';
+import { Alert } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -53,6 +55,18 @@ export default function ReportScreen() {
       });
     } catch (error) {
       console.error('分享失败:', error);
+    }
+  };
+
+  const exportReport = async () => {
+    try {
+      const result = await ExportService.exportReport(reportType, 'txt');
+      if (result.success) {
+        Alert.alert('成功', result.message || '报告已导出');
+      }
+    } catch (error) {
+      Alert.alert('错误', '导出报告失败，请重试');
+      console.error('导出报告失败:', error);
     }
   };
 
@@ -223,16 +237,27 @@ export default function ReportScreen() {
           </Card.Content>
         </Card>
 
-        {/* 分享按钮 */}
-        <Button
-          mode="contained"
-          icon="share"
-          onPress={shareReport}
-          style={styles.shareButton}
-          contentStyle={styles.shareButtonContent}
-        >
-          分享报告
-        </Button>
+        {/* 操作按钮 */}
+        <View style={styles.actionButtons}>
+          <Button
+            mode="outlined"
+            icon="download"
+            onPress={exportReport}
+            style={styles.exportButton}
+            contentStyle={styles.buttonContent}
+          >
+            导出报告
+          </Button>
+          <Button
+            mode="contained"
+            icon="share"
+            onPress={shareReport}
+            style={styles.shareButton}
+            contentStyle={styles.buttonContent}
+          >
+            分享报告
+          </Button>
+        </View>
       </View>
     </ScrollView>
   );
@@ -350,11 +375,20 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     lineHeight: 20,
   },
-  shareButton: {
+  actionButtons: {
+    flexDirection: 'row',
+    gap: theme.spacing.md,
     marginTop: theme.spacing.md,
+  },
+  exportButton: {
+    flex: 1,
     borderRadius: theme.borderRadius.md,
   },
-  shareButtonContent: {
+  shareButton: {
+    flex: 1,
+    borderRadius: theme.borderRadius.md,
+  },
+  buttonContent: {
     paddingVertical: theme.spacing.sm,
   },
 });

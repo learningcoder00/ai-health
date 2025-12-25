@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SecureStorage } from '../utils/secureStorage';
 
 const DEVICES_KEY = '@devices';
 const HEALTH_DATA_KEY = '@health_data';
@@ -6,8 +6,8 @@ const HEALTH_DATA_KEY = '@health_data';
 export class DeviceService {
   static async getConnectedDevices() {
     try {
-      const data = await AsyncStorage.getItem(DEVICES_KEY);
-      return data ? JSON.parse(data) : [];
+      const data = await SecureStorage.getItem(DEVICES_KEY);
+      return data || [];
     } catch (error) {
       console.error('获取设备列表失败:', error);
       return [];
@@ -18,7 +18,7 @@ export class DeviceService {
     try {
       const devices = await this.getConnectedDevices();
       devices.push(device);
-      await AsyncStorage.setItem(DEVICES_KEY, JSON.stringify(devices));
+      await SecureStorage.setItem(DEVICES_KEY, devices);
       return device;
     } catch (error) {
       console.error('添加设备失败:', error);
@@ -30,7 +30,7 @@ export class DeviceService {
     try {
       const devices = await this.getConnectedDevices();
       const filtered = devices.filter((d) => d.id !== deviceId);
-      await AsyncStorage.setItem(DEVICES_KEY, JSON.stringify(filtered));
+      await SecureStorage.setItem(DEVICES_KEY, filtered);
     } catch (error) {
       console.error('移除设备失败:', error);
       throw error;
@@ -39,9 +39,9 @@ export class DeviceService {
 
   static async getHealthData() {
     try {
-      const data = await AsyncStorage.getItem(HEALTH_DATA_KEY);
+      const data = await SecureStorage.getItem(HEALTH_DATA_KEY);
       if (data) {
-        return JSON.parse(data);
+        return data;
       }
       
       // 如果没有数据，生成模拟数据
@@ -75,7 +75,7 @@ export class DeviceService {
         (item) => new Date(item.date) >= thirtyDaysAgo
       );
       
-      await AsyncStorage.setItem(HEALTH_DATA_KEY, JSON.stringify(existingData));
+      await SecureStorage.setItem(HEALTH_DATA_KEY, existingData);
       return existingData;
     } catch (error) {
       console.error('更新健康数据失败:', error);

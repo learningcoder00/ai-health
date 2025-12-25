@@ -1,5 +1,6 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import { OCRService } from './OCRService';
+import { SecureStorage } from '../utils/secureStorage';
 
 const MEDICINES_KEY = '@medicines';
 const NOTIFICATION_ID_PREFIX = 'medicine_reminder_';
@@ -7,8 +8,8 @@ const NOTIFICATION_ID_PREFIX = 'medicine_reminder_';
 export class MedicineService {
   static async getAllMedicines() {
     try {
-      const data = await AsyncStorage.getItem(MEDICINES_KEY);
-      return data ? JSON.parse(data) : [];
+      const data = await SecureStorage.getItem(MEDICINES_KEY);
+      return data || [];
     } catch (error) {
       console.error('获取药品列表失败:', error);
       return [];
@@ -19,10 +20,42 @@ export class MedicineService {
     try {
       const medicines = await this.getAllMedicines();
       medicines.push(medicine);
-      await AsyncStorage.setItem(MEDICINES_KEY, JSON.stringify(medicines));
+      await SecureStorage.setItem(MEDICINES_KEY, medicines);
       return medicine;
     } catch (error) {
       console.error('保存药品失败:', error);
+      throw error;
+    }
+  }
+
+  static async updateMedicine(id, updatedMedicine) {
+    try {
+      const medicines = await this.getAllMedicines();
+      const index = medicines.findIndex((m) => m.id === id);
+      
+      if (index === -1) {
+        throw new Error('药品不存在');
+      }
+
+      // 保留原有ID和创建时间
+      const existingMedicine = medicines[index];
+      const updated = {
+        ...updatedMedicine,
+        id: existingMedicine.id,
+        createdAt: existingMedicine.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+
+      medicines[index] = updated;
+      await SecureStorage.setItem(MEDICINES_KEY, medicines);
+
+      // 取消旧提醒并设置新提醒
+      await this.cancelReminders(id);
+      await this.scheduleReminders(updated);
+
+      return updated;
+    } catch (error) {
+      console.error('更新药品失败:', error);
       throw error;
     }
   }
@@ -31,7 +64,7 @@ export class MedicineService {
     try {
       const medicines = await this.getAllMedicines();
       const filtered = medicines.filter((m) => m.id !== id);
-      await AsyncStorage.setItem(MEDICINES_KEY, JSON.stringify(filtered));
+      await SecureStorage.setItem(MEDICINES_KEY, filtered);
     } catch (error) {
       console.error('删除药品失败:', error);
       throw error;
@@ -39,32 +72,15 @@ export class MedicineService {
   }
 
   static async recognizeMedicine(imageUri) {
-    // 模拟OCR识别功能
-    // 实际项目中应该调用OCR API（如百度OCR、腾讯OCR等）
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        // 模拟识别结果
-        const mockResults = [
-          {
-            name: '阿司匹林肠溶片',
-            dosage: '每次1片',
-            frequency: '每日2次',
-          },
-          {
-            name: '布洛芬缓释胶囊',
-            dosage: '每次1粒',
-            frequency: '每日3次',
-          },
-          {
-            name: '维生素C片',
-            dosage: '每次2片',
-            frequency: '每日1次',
-          },
-        ];
-        const randomResult = mockResults[Math.floor(Math.random() * mockResults.length)];
-        resolve(randomResult);
-      }, 1500);
-    });
+    try {
+      // 调用真实的百度OCR API进行识别
+      const result = await OCRService.recognizeMedicine(imageUri);
+      return result;
+    } catch (error) {
+      console.error('药品识别失败:', error);
+      // 如果OCR识别失败，返回空结果，让用户手动输入
+      throw new Error('识别失败，请检查网络连接或手动输入药品信息');
+    }
   }
 
   static async scheduleReminders(medicine) {
@@ -125,7 +141,7 @@ export class MedicineService {
       const key = `${NOTIFICATION_ID_PREFIX}${medicineId}`;
       const ids = await this.getNotificationIds(medicineId);
       ids.push(notificationId);
-      await AsyncStorage.setItem(key, JSON.stringify(ids));
+      await SecureStorage.setItem(key, ids);
     } catch (error) {
       console.error('保存通知ID失败:', error);
     }
@@ -134,8 +150,8 @@ export class MedicineService {
   static async getNotificationIds(medicineId) {
     try {
       const key = `${NOTIFICATION_ID_PREFIX}${medicineId}`;
-      const data = await AsyncStorage.getItem(key);
-      return data ? JSON.parse(data) : [];
+      const data = await SecureStorage.getItem(key);
+      return data || [];
     } catch (error) {
       return [];
     }
@@ -144,7 +160,7 @@ export class MedicineService {
   static async deleteNotificationIds(medicineId) {
     try {
       const key = `${NOTIFICATION_ID_PREFIX}${medicineId}`;
-      await AsyncStorage.removeItem(key);
+      await SecureStorage.removeItem(key);
     } catch (error) {
       console.error('删除通知ID失败:', error);
     }

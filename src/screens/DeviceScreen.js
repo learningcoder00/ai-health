@@ -19,6 +19,8 @@ import { LineChart } from 'react-native-chart-kit';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme';
 import { DeviceService } from '../services/DeviceService';
+import { ExportService } from '../services/ExportService';
+import { Alert } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -254,6 +256,30 @@ export default function DeviceScreen() {
             </Card.Content>
           </Card>
         )}
+
+        {/* 导出数据按钮 */}
+        <Card style={styles.card}>
+          <Card.Content>
+            <Button
+              mode="contained"
+              icon="download"
+              onPress={async () => {
+                try {
+                  const result = await ExportService.exportHealthData('csv');
+                  if (result.success) {
+                    Alert.alert('成功', result.message || '健康数据已导出');
+                  }
+                } catch (error) {
+                  Alert.alert('错误', '导出数据失败，请重试');
+                  console.error('导出数据失败:', error);
+                }
+              }}
+              style={styles.exportButton}
+            >
+              导出健康数据 (CSV)
+            </Button>
+          </Card.Content>
+        </Card>
       </View>
     </ScrollView>
   );
@@ -347,6 +373,9 @@ const styles = StyleSheet.create({
   },
   chart: {
     marginVertical: theme.spacing.sm,
+    borderRadius: theme.borderRadius.md,
+  },
+  exportButton: {
     borderRadius: theme.borderRadius.md,
   },
 });

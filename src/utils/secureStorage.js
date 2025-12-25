@@ -1,0 +1,180 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import { EncryptionService } from '../services/EncryptionService';
+
+/**
+ * 敏感数据存储键列表
+ * 这些键对应的数据会被加密存储
+ */
+const SENSITIVE_KEYS = [
+  '@medicines',           // 药品信息
+  '@health_data',         // 健康数据
+  '@devices',             // 设备信息
+  '@baidu_ocr_token',     // OCR Token（虽然不是健康数据，但也应该加密）
+];
+
+/**
+ * 判断是否为敏感数据键
+ */
+function isSensitiveKey(key) {
+  return SENSITIVE_KEYS.some(sensitiveKey => key.startsWith(sensitiveKey));
+}
+
+/**
+ * 安全存储服务
+ * 对敏感数据进行加密存储，非敏感数据正常存储
+ */
+export const SecureStorage = {
+  /**
+   * 获取存储项
+   * 如果是敏感数据，会自动解密
+   */
+  async getItem(key) {
+    try {
+      const value = await AsyncStorage.getItem(key);
+      
+      if (!value) {
+        return null;
+      }
+
+      // 如果是敏感数据，尝试解密
+      if (isSensitiveKey(key)) {
+        try {
+          // 先尝试解析JSON（可能是未加密的旧数据）
+          try {
+            const parsed = JSON.parse(value);
+            // 如果解析成功且是对象，说明可能是未加密的旧数据
+            // 为了兼容性，先返回旧数据，下次保存时会自动加密
+            return parsed;
+          } catch {
+            // 不是JSON，可能是加密数据，尝试解密
+            const decrypted = await EncryptionService.decrypt(value);
+            return JSON.parse(decrypted);
+          }
+        } catch (error) {
+          // 解密失败，可能是旧数据（未加密），尝试直接解析
+          console.warn(`解密失败，尝试直接解析: ${key}`, error);
+          try {
+            return JSON.parse(value);
+          } catch {
+            return value;
+          }
+        }
+      }
+
+      // 非敏感数据，直接解析JSON
+      return JSON.parse(value);
+    } catch (error) {
+      console.error('读取存储失败:', error);
+      return null;
+    }
+  },
+
+  /**
+   * 设置存储项
+   * 如果是敏感数据，会自动加密
+   */
+  async setItem(key, value) {
+    try {
+      let stringValue;
+
+      // 如果是敏感数据，先加密再存储
+      if (isSensitiveKey(key)) {
+        try {
+          // 将对象转换为JSON字符串
+          const jsonString = JSON.stringify(value);
+          // 加密后存储
+          stringValue = await EncryptionService.encrypt(jsonString);
+        } catch (error) {
+          console.error('加密存储失败:', error);
+          // 如果加密失败，降级为普通存储（不推荐，但保证功能可用）
+          stringValue = JSON.stringify(value);
+        }
+      } else {
+        // 非敏感数据，直接序列化
+        stringValue = JSON.stringify(value);
+      }
+
+      await AsyncStorage.setItem(key, stringValue);
+      return true;
+    } catch (error) {
+      console.error('保存存储失败:', error);
+      return false;
+    }
+  },
+
+  /**
+   * 删除存储项
+   */
+  async removeItem(key) {
+    try {
+      await AsyncStorage.removeItem(key);
+      return true;
+    } catch (error) {
+      console.error('删除存储失败:', error);
+      return false;
+    }
+  },
+
+  /**
+   * 清空所有存储
+   */
+  async clear() {
+    try {
+      await AsyncStorage.clear();
+      return true;
+    } catch (error) {
+      console.error('清空存储失败:', error);
+      return false;
+    }
+  },
+
+  /**
+   * 获取所有键
+   */
+  async getAllKeys() {
+    try {
+      return await AsyncStorage.getAllKeys();
+    } catch (error) {
+      console.error('获取所有键失败:', error);
+      return [];
+    }
+  },
+
+  /**
+   * 批量获取多个键的值
+   */
+  async multiGet(keys) {
+    try {
+      const items = await AsyncStorage.multiGet(keys);
+      const result = {};
+
+      for (const [key, value] of items) {
+        if (value) {
+          try {
+            // 如果是敏感数据，尝试解密
+            if (isSensitiveKey(key)) {
+              try {
+                const decrypted = await EncryptionService.decrypt(value);
+                result[key] = JSON.parse(decrypted);
+              } catch {
+                // 解密失败，尝试直接解析（可能是旧数据）
+                result[key] = JSON.parse(value);
+              }
+            } else {
+              result[key] = JSON.parse(value);
+            }
+          } catch {
+            result[key] = value;
+          }
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error('批量获取存储失败:', error);
+      return {};
+    }
+  },
+};
+
