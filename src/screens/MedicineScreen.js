@@ -18,7 +18,6 @@ import {
   Chip,
   Dialog,
   Portal,
-  TextInput,
   ActivityIndicator,
 } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
@@ -43,13 +42,14 @@ export default function MedicineScreen() {
   const [dialogVisible, setDialogVisible] = useState(false);
   const [sourceDialogVisible, setSourceDialogVisible] = useState(false);
   const [selectedImages, setSelectedImages] = useState([]);
-  const [medicineName, setMedicineName] = useState('');
-  const [dosage, setDosage] = useState('');
-  const [frequency, setFrequency] = useState('');
   const [recognizing, setRecognizing] = useState(false);
   const [editingMedicine, setEditingMedicine] = useState(null); // 正在编辑的药品
   const [medicineDetails, setMedicineDetails] = useState(null); // 药品详细信息（来自数据库）
   const [detailsDialogVisible, setDetailsDialogVisible] = useState(false); // 详情对话框
+  const [selectedImageForOCR, setSelectedImageForOCR] = useState(null); // 选择用于OCR识别的图片
+  const [recognitionResult, setRecognitionResult] = useState(null); // 识别结果
+  const [errorDialogVisible, setErrorDialogVisible] = useState(false); // 错误对话框
+  const [errorMessage, setErrorMessage] = useState(''); // 错误信息
 
   useEffect(() => {
     loadMedicines();
@@ -119,40 +119,12 @@ export default function MedicineScreen() {
           setSelectedImages(newImages);
         }
         
-        // 使用第一张图片进行OCR识别
-        if (selectedImages.length === 0 && result.assets[0].uri) {
-          setRecognizing(true);
-          try {
-            const recognizedData = await MedicineService.recognizeMedicine(result.assets[0].uri);
-            setMedicineName(recognizedData.name || '');
-            setDosage(recognizedData.dosage || '');
-            setFrequency(recognizedData.frequency || '');
-            
-            // 如果查询到详细的药品信息，保存起来
-            if (recognizedData.hasDetails) {
-              setMedicineDetails(recognizedData);
-            }
-            
-            if (!recognizedData.name) {
-              Alert.alert('提示', '未能识别出药品信息，请手动输入');
-            } else if (recognizedData.hasDetails) {
-              // 如果查询到详细信息，提示用户
-              Alert.alert('识别成功', '已识别药品信息并查询到详细使用说明，可点击"查看详情"查看');
-            }
-          } catch (error) {
-            console.error('OCR识别错误:', error);
-            Alert.alert('识别失败', error.message || '无法识别图片，请手动输入药品信息');
-          } finally {
-            setRecognizing(false);
-          }
-        }
-        
+        // 上传照片后，不自动识别，等待用户点击OCR识别按钮
         setDialogVisible(true);
       }
     } catch (error) {
       Alert.alert('错误', '拍摄失败，请重试');
       console.error('相机错误:', error);
-      setRecognizing(false);
     }
   };
 
@@ -191,46 +163,70 @@ export default function MedicineScreen() {
           setSelectedImages(newImages);
         }
         
-        // 使用第一张图片进行OCR识别
-        if (selectedImages.length === 0 && result.assets[0].uri) {
-          setRecognizing(true);
-          try {
-            const recognizedData = await MedicineService.recognizeMedicine(result.assets[0].uri);
-            setMedicineName(recognizedData.name || '');
-            setDosage(recognizedData.dosage || '');
-            setFrequency(recognizedData.frequency || '');
-            
-            // 如果查询到详细的药品信息，保存起来
-            if (recognizedData.hasDetails) {
-              setMedicineDetails(recognizedData);
-            }
-            
-            if (!recognizedData.name) {
-              Alert.alert('提示', '未能识别出药品信息，请手动输入');
-            } else if (recognizedData.hasDetails) {
-              // 如果查询到详细信息，提示用户
-              Alert.alert('识别成功', '已识别药品信息并查询到详细使用说明，可点击"查看详情"查看');
-            }
-          } catch (error) {
-            console.error('OCR识别错误:', error);
-            Alert.alert('识别失败', error.message || '无法识别图片，请手动输入药品信息');
-          } finally {
-            setRecognizing(false);
-          }
-        }
-        
+        // 上传照片后，不自动识别，等待用户点击OCR识别按钮
         setDialogVisible(true);
       }
     } catch (error) {
       Alert.alert('错误', '选择图片失败，请重试');
       console.error('相册错误:', error);
+    }
+  };
+
+  // OCR识别函数 - 手动触发
+  const performOCRRecognition = async () => {
+    console.log('开始识别，selectedImages:', selectedImages);
+    
+    if (selectedImages.length === 0) {
+      setErrorMessage('请先上传药品照片');
+      setErrorDialogVisible(true);
+      return;
+    }
+
+    // 使用第一张图片进行识别
+    const imageToRecognize = selectedImages[0];
+    console.log('准备识别图片:', imageToRecognize);
+    setSelectedImageForOCR(imageToRecognize);
+    setRecognizing(true);
+
+    try {
+      console.log('调用 MedicineService.recognizeMedicine...');
+      const recognizedData = await MedicineService.recognizeMedicine(imageToRecognize);
+      console.log('识别结果:', recognizedData);
+      
+      // 保存识别结果
+      setRecognitionResult(recognizedData);
+      
+      // 如果查询到详细的药品信息，保存起来
+      if (recognizedData.hasDetails) {
+        setMedicineDetails(recognizedData);
+        console.log('查询到详细药品信息:', recognizedData);
+        // 识别成功，直接显示详情对话框
+        setRecognizing(false);
+        setDetailsDialogVisible(true);
+      } else if (recognizedData.name) {
+        // 识别到药品名称但没有详细信息
+        setMedicineDetails(recognizedData);
+        console.log('识别到药品名称，但无详细信息:', recognizedData);
+        setRecognizing(false);
+        // 直接显示详情对话框，即使没有详细信息也显示识别结果
+        setDetailsDialogVisible(true);
+      } else {
+        // 未识别到药品名称
+        setRecognizing(false);
+        setErrorMessage('未能识别出药品信息，请确保图片清晰且包含药品名称');
+        setErrorDialogVisible(true);
+      }
+    } catch (error) {
+      console.error('OCR识别错误:', error);
       setRecognizing(false);
+      setErrorMessage(error.message || '无法识别图片，请检查网络连接后重试');
+      setErrorDialogVisible(true);
     }
   };
 
   const saveMedicine = async () => {
-    if (!medicineName || !dosage || !frequency) {
-      Alert.alert('提示', '请填写完整的药品信息');
+    if (!recognitionResult || !recognitionResult.name) {
+      Alert.alert('提示', '请先识别药品信息');
       return;
     }
 
@@ -240,6 +236,10 @@ export default function MedicineScreen() {
     }
 
     try {
+      const medicineName = recognitionResult.name;
+      const dosage = recognitionResult.dosage || '每次1片';
+      const frequency = recognitionResult.frequency || '每日2次';
+
       if (editingMedicine) {
         // 更新现有药品
         const updatedMedicine = {
@@ -270,9 +270,8 @@ export default function MedicineScreen() {
       setDialogVisible(false);
       setSourceDialogVisible(false);
       setSelectedImages([]);
-      setMedicineName('');
-      setDosage('');
-      setFrequency('');
+      setRecognitionResult(null);
+      setMedicineDetails(null);
       setEditingMedicine(null);
       
       loadMedicines();
@@ -283,10 +282,13 @@ export default function MedicineScreen() {
 
   const editMedicine = (medicine) => {
     setEditingMedicine(medicine);
-    setMedicineName(medicine.name || '');
-    setDosage(medicine.dosage || '');
-    setFrequency(medicine.frequency || '');
     setSelectedImages(medicine.images || (medicine.image ? [medicine.image] : []));
+    // 设置识别结果为现有药品信息
+    setRecognitionResult({
+      name: medicine.name || '',
+      dosage: medicine.dosage || '',
+      frequency: medicine.frequency || '',
+    });
     setDialogVisible(true);
   };
 
@@ -448,10 +450,11 @@ export default function MedicineScreen() {
           onDismiss={() => {
             setDialogVisible(false);
             setSelectedImages([]);
-            setMedicineName('');
-            setDosage('');
-            setFrequency('');
             setEditingMedicine(null);
+            setMedicineDetails(null);
+            setSelectedImageForOCR(null);
+            setRecognizing(false);
+            setRecognitionResult(null);
           }}
         >
           <Dialog.Title>{editingMedicine ? '编辑药品信息' : '确认药品信息'}</Dialog.Title>
@@ -485,38 +488,38 @@ export default function MedicineScreen() {
                 添加更多图片 ({selectedImages.length}/9)
               </Button>
             )}
-            <TextInput
-              label="药品名称"
-              value={medicineName}
-              onChangeText={setMedicineName}
-              style={styles.input}
-              mode="outlined"
-            />
-            <TextInput
-              label="服用剂量"
-              value={dosage}
-              onChangeText={setDosage}
-              placeholder="例如：每次1片"
-              style={styles.input}
-              mode="outlined"
-            />
-            <TextInput
-              label="服用频率"
-              value={frequency}
-              onChangeText={setFrequency}
-              placeholder="例如：每日2次"
-              style={styles.input}
-              mode="outlined"
-            />
-            {medicineDetails && medicineDetails.hasDetails && (
+            
+            {/* OCR识别按钮 */}
+            {selectedImages.length > 0 && (
               <Button
-                mode="outlined"
-                icon="information"
-                onPress={() => setDetailsDialogVisible(true)}
-                style={styles.detailsButton}
+                mode="contained"
+                icon={recognizing ? undefined : "barcode-scan"}
+                onPress={() => {
+                  console.log('识别按钮被点击，recognizing:', recognizing);
+                  if (!recognizing) {
+                    performOCRRecognition();
+                  }
+                }}
+                style={styles.ocrButton}
+                disabled={recognizing}
+                loading={recognizing}
               >
-                查看详细使用说明
+                {recognizing ? '正在识别...' : '识别药品'}
               </Button>
+            )}
+
+            {/* 显示识别结果 */}
+            {recognitionResult && recognitionResult.name && (
+              <View style={styles.recognitionResultContainer}>
+                <Text style={styles.recognitionResultTitle}>识别结果：</Text>
+                <Text style={styles.recognitionResultText}>药品名称：{recognitionResult.name}</Text>
+                {recognitionResult.dosage && (
+                  <Text style={styles.recognitionResultText}>服用剂量：{recognitionResult.dosage}</Text>
+                )}
+                {recognitionResult.frequency && (
+                  <Text style={styles.recognitionResultText}>服用频率：{recognitionResult.frequency}</Text>
+                )}
+              </View>
             )}
           </Dialog.Content>
           <Dialog.Actions>
@@ -524,18 +527,34 @@ export default function MedicineScreen() {
               onPress={() => {
                 setDialogVisible(false);
                 setSelectedImages([]);
-                setMedicineName('');
-                setDosage('');
-                setFrequency('');
                 setEditingMedicine(null);
                 setMedicineDetails(null);
+                setRecognitionResult(null);
               }}
             >
               取消
             </Button>
-            <Button onPress={saveMedicine} mode="contained">
+            <Button 
+              onPress={saveMedicine} 
+              mode="contained"
+              disabled={!recognitionResult || !recognitionResult.name}
+            >
               {editingMedicine ? '更新' : '保存'}
             </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* 错误提示对话框 */}
+        <Dialog
+          visible={errorDialogVisible}
+          onDismiss={() => setErrorDialogVisible(false)}
+        >
+          <Dialog.Title>提示</Dialog.Title>
+          <Dialog.Content>
+            <Paragraph>{errorMessage}</Paragraph>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setErrorDialogVisible(false)}>确定</Button>
           </Dialog.Actions>
         </Dialog>
 
@@ -549,6 +568,24 @@ export default function MedicineScreen() {
             <ScrollView style={styles.detailsScrollView}>
               {medicineDetails && (
                 <>
+                  {medicineDetails.name && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>药品名称：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.name}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.dosage && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>服用剂量：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.dosage}</Text>
+                    </View>
+                  )}
+                  {medicineDetails.frequency && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>服用频率：</Text>
+                      <Text style={styles.detailValue}>{medicineDetails.frequency}</Text>
+                    </View>
+                  )}
                   {medicineDetails.specification && (
                     <View style={styles.detailItem}>
                       <Text style={styles.detailLabel}>规格：</Text>
@@ -621,6 +658,17 @@ export default function MedicineScreen() {
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setDetailsDialogVisible(false)}>关闭</Button>
+            {recognitionResult && recognitionResult.name && (
+              <Button 
+                onPress={() => {
+                  setDetailsDialogVisible(false);
+                  // 关闭详情对话框后，主对话框仍然打开，可以保存
+                }} 
+                mode="contained"
+              >
+                确定
+              </Button>
+            )}
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -745,6 +793,12 @@ const styles = StyleSheet.create({
   addMoreButton: {
     marginBottom: theme.spacing.md,
   },
+  ocrButton: {
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.primary,
+  },
   dialogText: {
     marginBottom: theme.spacing.sm,
   },
@@ -770,6 +824,24 @@ const styles = StyleSheet.create({
   detailValue: {
     fontSize: 14,
     color: theme.colors.text,
+    lineHeight: 20,
+  },
+  recognitionResultContainer: {
+    marginTop: theme.spacing.md,
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.sm,
+  },
+  recognitionResultTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+    marginBottom: theme.spacing.sm,
+  },
+  recognitionResultText: {
+    fontSize: 14,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.xs,
     lineHeight: 20,
   },
 });

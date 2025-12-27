@@ -71,12 +71,17 @@ export class MedicineDBService {
     try {
       const url = `${CURRENT_API.BASE_URL}?key=${CURRENT_API.API_KEY}&drugname=${encodeURIComponent(medicineName)}`;
       
+      console.log('查询聚合数据API:', url);
       const response = await fetch(url);
       const data = await response.json();
 
+      console.log('聚合数据API返回:', data);
+
       // 聚合数据API返回格式：{ error_code: 0, reason: 'success', result: {...} }
       if (data.error_code === 0 && data.result) {
-        return this.formatJuheResult(data.result);
+        const formatted = this.formatJuheResult(data.result);
+        console.log('格式化后的药品信息:', formatted);
+        return formatted;
       }
 
       // 如果返回错误，记录日志

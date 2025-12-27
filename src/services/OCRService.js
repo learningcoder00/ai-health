@@ -18,27 +18,52 @@ export class OCRService {
       // 先检查缓存的token
       const cachedToken = await this.getCachedToken();
       if (cachedToken) {
+        console.log('使用缓存的Access Token');
         return cachedToken;
       }
 
       // 如果没有缓存或已过期，重新获取
+      console.log('重新获取Access Token');
       const url = `${BAIDU_OCR_CONFIG.TOKEN_URL}?grant_type=client_credentials&client_id=${BAIDU_OCR_CONFIG.API_KEY}&client_secret=${BAIDU_OCR_CONFIG.SECRET_KEY}`;
       
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      console.log('请求Token URL:', BAIDU_OCR_CONFIG.TOKEN_URL);
+      let response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      } catch (fetchError) {
+        // 捕获网络错误（包括CORS错误）
+        console.error('网络请求失败:', fetchError);
+        if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError')) {
+          throw new Error('网络连接失败: 无法访问百度OCR服务器。请检查网络连接或使用VPN/代理。如果是在Web浏览器中，可能需要通过后端代理服务器访问。');
+        } else if (fetchError.message.includes('CORS')) {
+          throw new Error('跨域请求被阻止: 浏览器安全策略阻止了请求。建议使用移动端应用或配置后端代理服务器。');
+        } else {
+          throw new Error(`网络请求失败: ${fetchError.message}`);
+        }
+      }
+
+      console.log('Token API响应状态:', response.status);
 
       if (!response.ok) {
-        throw new Error(`获取Token失败: ${response.status}`);
+        const errorText = await response.text();
+        console.error('Token API响应错误:', errorText);
+        throw new Error(`获取Token失败: HTTP ${response.status} - ${response.statusText}`);
       }
 
       const data = await response.json();
+      console.log('Token API返回数据:', data);
       
       if (data.error) {
-        throw new Error(`获取Token失败: ${data.error_description || data.error}`);
+        throw new Error(`获取Token失败: ${data.error_description || data.error} (错误: ${data.error})`);
+      }
+
+      if (!data.access_token) {
+        throw new Error('获取Token失败: 响应中未包含access_token');
       }
 
       const token = data.access_token;
@@ -46,10 +71,15 @@ export class OCRService {
 
       // 缓存token
       await this.cacheToken(token, expiresIn);
+      console.log('Token获取并缓存成功');
 
       return token;
     } catch (error) {
-      console.error('获取Access Token失败:', error);
+      console.error('获取Access Token失败详情:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       throw error;
     }
   }
@@ -134,40 +164,71 @@ export class OCRService {
    */
   static async recognizeText(imageUri) {
     try {
+      console.log('开始OCR识别流程...');
       // 1. 获取Access Token
+      console.log('步骤1: 获取Access Token');
       const accessToken = await this.getAccessToken();
+      console.log('Access Token获取成功');
 
       // 2. 将图片转换为base64
+      console.log('步骤2: 转换图片为base64');
       const base64Image = await this.imageToBase64(imageUri);
+      console.log('图片转换成功，base64长度:', base64Image.length);
 
       // 3. 调用OCR API
+      console.log('步骤3: 调用OCR API');
       const url = `${BAIDU_OCR_CONFIG.OCR_URL}?access_token=${accessToken}`;
       
       const formData = new URLSearchParams();
       formData.append('image', base64Image);
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString(),
-      });
+      console.log('发送OCR请求到:', url);
+      let response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: formData.toString(),
+        });
+      } catch (fetchError) {
+        // 捕获网络错误（包括CORS错误）
+        console.error('OCR API网络请求失败:', fetchError);
+        if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError')) {
+          throw new Error('网络连接失败: 无法访问百度OCR服务器。请检查网络连接或使用VPN/代理。如果是在Web浏览器中，可能需要通过后端代理服务器访问。');
+        } else if (fetchError.message.includes('CORS')) {
+          throw new Error('跨域请求被阻止: 浏览器安全策略阻止了请求。建议使用移动端应用或配置后端代理服务器。');
+        } else {
+          throw new Error(`OCR API网络请求失败: ${fetchError.message}`);
+        }
+      }
+
+      console.log('OCR API响应状态:', response.status, response.statusText);
 
       if (!response.ok) {
-        throw new Error(`OCR识别失败: ${response.status}`);
+        const errorText = await response.text();
+        console.error('OCR API响应错误:', errorText);
+        throw new Error(`OCR识别失败: HTTP ${response.status} - ${response.statusText}`);
       }
 
       const result = await response.json();
+      console.log('OCR API返回结果:', result);
 
       // 检查是否有错误
       if (result.error_code) {
-        throw new Error(`OCR识别失败: ${result.error_msg || '未知错误'}`);
+        const errorMsg = result.error_msg || '未知错误';
+        console.error('OCR API返回错误:', result.error_code, errorMsg);
+        throw new Error(`OCR识别失败 (错误码: ${result.error_code}): ${errorMsg}`);
       }
 
       return result;
     } catch (error) {
-      console.error('OCR识别错误:', error);
+      console.error('OCR识别错误详情:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       throw error;
     }
   }
@@ -292,19 +353,26 @@ export class OCRService {
       // 3. 如果识别到药品名称，查询药物数据库获取详细信息
       let dbMedicineInfo = null;
       if (ocrMedicineInfo.name) {
+        console.log('OCR识别到药品名称，开始查询药物数据库:', ocrMedicineInfo.name);
         try {
           dbMedicineInfo = await MedicineDBService.searchMedicine(ocrMedicineInfo.name);
+          console.log('药物数据库查询结果:', dbMedicineInfo);
         } catch (error) {
           console.warn('查询药物数据库失败，仅使用OCR结果:', error);
         }
+      } else {
+        console.log('OCR未识别到药品名称，跳过数据库查询');
       }
 
       // 4. 合并OCR结果和数据库查询结果
       if (dbMedicineInfo && dbMedicineInfo.hasDetails) {
-        return MedicineDBService.mergeResults(ocrMedicineInfo, dbMedicineInfo);
+        const merged = MedicineDBService.mergeResults(ocrMedicineInfo, dbMedicineInfo);
+        console.log('合并后的药品信息:', merged);
+        return merged;
       }
 
       // 如果数据库查询失败或未启用，仅返回OCR结果
+      console.log('返回OCR识别结果（无数据库信息）:', ocrMedicineInfo);
       return ocrMedicineInfo;
     } catch (error) {
       console.error('识别药品信息失败:', error);

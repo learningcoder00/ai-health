@@ -78,8 +78,16 @@ export class MedicineService {
       return result;
     } catch (error) {
       console.error('药品识别失败:', error);
-      // 如果OCR识别失败，返回空结果，让用户手动输入
-      throw new Error('识别失败，请检查网络连接或手动输入药品信息');
+      // 传递更详细的错误信息
+      const errorMessage = error.message || '未知错误';
+      // 如果错误信息已经比较详细，直接使用；否则使用通用提示
+      if (errorMessage.includes('Token') || errorMessage.includes('网络') || errorMessage.includes('连接')) {
+        throw new Error(errorMessage);
+      } else if (errorMessage.includes('图片处理')) {
+        throw new Error(errorMessage);
+      } else {
+        throw new Error(`识别失败: ${errorMessage}。请检查网络连接或重试`);
+      }
     }
   }
 
