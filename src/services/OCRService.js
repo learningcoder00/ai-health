@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 import { BAIDU_OCR_CONFIG } from '../config/baiduOCR';
+import { WEB_PROXY_CONFIG } from '../config/webProxy';
 import { SecureStorage } from '../utils/secureStorage';
 import { MedicineDBService } from './MedicineDBService';
 
@@ -24,9 +25,13 @@ export class OCRService {
 
       // 如果没有缓存或已过期，重新获取
       console.log('重新获取Access Token');
-      const url = `${BAIDU_OCR_CONFIG.TOKEN_URL}?grant_type=client_credentials&client_id=${BAIDU_OCR_CONFIG.API_KEY}&client_secret=${BAIDU_OCR_CONFIG.SECRET_KEY}`;
+      // Web 端走本地代理，避免 CORS
+      const url =
+        Platform.OS === 'web'
+          ? `${WEB_PROXY_CONFIG.BASE_URL}/api/baidu/token`
+          : `${BAIDU_OCR_CONFIG.TOKEN_URL}?grant_type=client_credentials&client_id=${BAIDU_OCR_CONFIG.API_KEY}&client_secret=${BAIDU_OCR_CONFIG.SECRET_KEY}`;
       
-      console.log('请求Token URL:', BAIDU_OCR_CONFIG.TOKEN_URL);
+      console.log('请求Token URL:', Platform.OS === 'web' ? url : BAIDU_OCR_CONFIG.TOKEN_URL);
       let response;
       try {
         response = await fetch(url, {
@@ -165,47 +170,59 @@ export class OCRService {
   static async recognizeText(imageUri) {
     try {
       console.log('开始OCR识别流程...');
-      // 1. 获取Access Token
-      console.log('步骤1: 获取Access Token');
-      const accessToken = await this.getAccessToken();
-      console.log('Access Token获取成功');
-
       // 2. 将图片转换为base64
       console.log('步骤2: 转换图片为base64');
       const base64Image = await this.imageToBase64(imageUri);
       console.log('图片转换成功，base64长度:', base64Image.length);
 
-      // 3. 调用OCR API
-      console.log('步骤3: 调用OCR API');
+      // Web：走代理（代理内部会获取 token + 调 OCR），避免 CORS
+      if (Platform.OS === 'web') {
+        console.log('步骤3(Web): 调用本地代理 OCR');
+        const proxyUrl = `${WEB_PROXY_CONFIG.BASE_URL}/api/baidu/ocr`;
+        const response = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: base64Image,
+            ocrUrl: BAIDU_OCR_CONFIG.OCR_URL,
+          }),
+        });
+        const result = await response.json();
+        console.log('代理 OCR 返回结果:', result);
+
+        if (result.error_code) {
+          const errorMsg = result.error_msg || '未知错误';
+          throw new Error(`OCR识别失败 (错误码: ${result.error_code}): ${errorMsg}`);
+        }
+        if (!result.words_result) {
+          // token 获取失败等情况，Baidu 会返回 error / error_description
+          if (result.error) {
+            throw new Error(`OCR识别失败: ${result.error_description || result.error}`);
+          }
+        }
+        return result;
+      }
+
+      // Native：直连百度 OCR
+      console.log('步骤1: 获取Access Token');
+      const accessToken = await this.getAccessToken();
+      console.log('Access Token获取成功');
+
+      console.log('步骤3(Native): 调用OCR API');
       const url = `${BAIDU_OCR_CONFIG.OCR_URL}?access_token=${accessToken}`;
-      
       const formData = new URLSearchParams();
       formData.append('image', base64Image);
 
       console.log('发送OCR请求到:', url);
-      let response;
-      try {
-        response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: formData.toString(),
-        });
-      } catch (fetchError) {
-        // 捕获网络错误（包括CORS错误）
-        console.error('OCR API网络请求失败:', fetchError);
-        if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError')) {
-          throw new Error('网络连接失败: 无法访问百度OCR服务器。请检查网络连接或使用VPN/代理。如果是在Web浏览器中，可能需要通过后端代理服务器访问。');
-        } else if (fetchError.message.includes('CORS')) {
-          throw new Error('跨域请求被阻止: 浏览器安全策略阻止了请求。建议使用移动端应用或配置后端代理服务器。');
-        } else {
-          throw new Error(`OCR API网络请求失败: ${fetchError.message}`);
-        }
-      }
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      });
 
       console.log('OCR API响应状态:', response.status, response.statusText);
-
       if (!response.ok) {
         const errorText = await response.text();
         console.error('OCR API响应错误:', errorText);
@@ -214,14 +231,11 @@ export class OCRService {
 
       const result = await response.json();
       console.log('OCR API返回结果:', result);
-
-      // 检查是否有错误
       if (result.error_code) {
         const errorMsg = result.error_msg || '未知错误';
         console.error('OCR API返回错误:', result.error_code, errorMsg);
         throw new Error(`OCR识别失败 (错误码: ${result.error_code}): ${errorMsg}`);
       }
-
       return result;
     } catch (error) {
       console.error('OCR识别错误详情:', {

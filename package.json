@@ -6,7 +6,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "proxy": "node proxy-server.js",
+    "cloud": "node cloud-server.js"
   },
   "dependencies": {
     "@expo/metro-runtime": "~3.0.1",
@@ -27,6 +29,7 @@
     "expo-notifications": "~0.20.1",
     "expo-secure-store": "~12.3.1",
     "expo-status-bar": "~1.6.0",
+    "better-sqlite3": "^11.7.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-native": "0.72.10",

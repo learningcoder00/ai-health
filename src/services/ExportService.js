@@ -10,6 +10,47 @@ import { Platform, Share } from 'react-native';
  */
 export class ExportService {
   /**
+   * 导出服药记录（打卡/漏服/稍后）为 CSV
+   */
+  static async exportIntakeLogsToCSV() {
+    try {
+      const logs = await MedicineService.getIntakeLogs();
+      let csv = '时间,药品ID,提醒ID,动作,计划时间,来源,稍后分钟\n';
+      logs.forEach((l) => {
+        const at = l.at ? new Date(l.at).toLocaleString('zh-CN') : '';
+        csv += `"${at}","${l.medicineId || ''}","${l.reminderId || ''}","${l.action || ''}","${l.scheduledAt || ''}","${l.source || ''}","${l.snoozeMinutes || ''}"\n`;
+      });
+      return csv;
+    } catch (error) {
+      console.error('导出服药记录失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 导出服药记录（完整流程）
+   */
+  static async exportIntakeLogs(format = 'csv') {
+    try {
+      let content, filename, mimeType;
+      if (format === 'csv') {
+        content = await this.exportIntakeLogsToCSV();
+        filename = `服药记录_${new Date().toISOString().split('T')[0]}.csv`;
+        mimeType = 'text/csv';
+      } else if (format === 'json') {
+        content = JSON.stringify(await MedicineService.getIntakeLogs(), null, 2);
+        filename = `服药记录_${new Date().toISOString().split('T')[0]}.json`;
+        mimeType = 'application/json';
+      } else {
+        throw new Error('不支持的格式');
+      }
+      return await this.shareFile(content, filename, mimeType);
+    } catch (error) {
+      console.error('导出服药记录失败:', error);
+      throw error;
+    }
+  }
+  /**
    * 导出健康数据为CSV格式
    */
   static async exportHealthDataToCSV() {

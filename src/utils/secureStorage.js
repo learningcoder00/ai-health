@@ -11,6 +11,11 @@ const SENSITIVE_KEYS = [
   '@health_data',         // 健康数据
   '@devices',             // 设备信息
   '@baidu_ocr_token',     // OCR Token（虽然不是健康数据，但也应该加密）
+  '@medicine_reminders',  // 用药提醒计划与状态
+  '@medicine_intake_logs', // 服药打卡/漏服记录
+  '@auth_token',           // 云端登录token
+  '@user_profile',         // 用户资料
+  '@cloud_sync_meta'       // 云同步元数据（revision/updatedAt）
 ];
 
 /**

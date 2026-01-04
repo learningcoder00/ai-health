@@ -1,0 +1,116 @@
+import { SecureStorage } from '../utils/secureStorage';
+import { AuthService } from './AuthService';
+import { CLOUD_CONFIG } from '../config/cloud';
+
+const CLOUD_META_KEY = '@cloud_sync_meta'; // { revision, updatedAt }
+
+// 本项目目前的“用户数据快照”包含这些 key
+const SNAPSHOT_KEYS = [
+  '@medicines',
+  '@health_data',
+  '@devices',
+  '@medicine_reminders',
+  '@medicine_intake_logs',
+];
+
+async function httpJson(path, { method = 'GET', token, body } = {}) {
+  const url = `${CLOUD_CONFIG.BASE_URL}${path}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    throw new Error(`无法连接云端服务：${CLOUD_CONFIG.BASE_URL}。请先启动 npm run cloud`);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+export class CloudSyncService {
+  static async getCloudMeta() {
+    return (await SecureStorage.getItem(CLOUD_META_KEY)) || null;
+  }
+
+  static async setCloudMeta(meta) {
+    await SecureStorage.setItem(CLOUD_META_KEY, meta);
+  }
+
+  static async buildLocalSnapshot() {
+    const snapshot = {};
+    for (const key of SNAPSHOT_KEYS) {
+      snapshot[key] = (await SecureStorage.getItem(key)) ?? null;
+    }
+    return snapshot;
+  }
+
+  static async applySnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    for (const key of SNAPSHOT_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+        await SecureStorage.setItem(key, snapshot[key]);
+      }
+    }
+  }
+
+  // 上传：把本地数据作为“当前用户”的云端快照（覆盖云端）
+  static async syncUp() {
+    const token = await AuthService.getToken();
+    if (!token) throw new Error('未登录');
+    const profile = await AuthService.getProfile();
+    const snapshot = await this.buildLocalSnapshot();
+
+    const meta = await this.getCloudMeta();
+    const baseRevision = meta?.revision || null;
+
+    const resp = await httpJson('/data', {
+      method: 'PUT',
+      token,
+      body: { snapshot: { profile, data: snapshot }, baseRevision },
+    });
+    if (resp?.revision) {
+      await this.setCloudMeta({ revision: resp.revision, updatedAt: resp.updatedAt || null });
+    }
+    return true;
+  }
+
+  // 强制上传：忽略冲突直接覆盖云端
+  static async forceSyncUp() {
+    const token = await AuthService.getToken();
+    if (!token) throw new Error('未登录');
+    const profile = await AuthService.getProfile();
+    const snapshot = await this.buildLocalSnapshot();
+    const resp = await httpJson('/data?force=1', {
+      method: 'PUT',
+      token,
+      body: { snapshot: { profile, data: snapshot } },
+    });
+    if (resp?.revision) {
+      await this.setCloudMeta({ revision: resp.revision, updatedAt: resp.updatedAt || null });
+    }
+    return true;
+  }
+
+  // 下载：把云端快照拉回本地（覆盖本地）
+  static async syncDown() {
+    const token = await AuthService.getToken();
+    if (!token) throw new Error('未登录');
+    const remote = await httpJson('/data', { method: 'GET', token });
+    const remoteProfile = remote?.profile || null;
+    const remoteData = remote?.snapshot?.data || null;
+    if (remoteProfile) await SecureStorage.setItem('@user_profile', remoteProfile);
+    if (remoteData) await this.applySnapshot(remoteData);
+    if (remote?.revision) {
+      await this.setCloudMeta({ revision: remote.revision, updatedAt: remote.updatedAt || null });
+    }
+    return true;
+  }
+}
+
+

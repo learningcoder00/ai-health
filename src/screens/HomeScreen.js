@@ -1,13 +1,122 @@
-import React from 'react';
-import { View, StyleSheet, ScrollView, Dimensions } from 'react-native';
-import { Card, Title, Paragraph, Button, Text } from 'react-native-paper';
+import React, { useState } from 'react';
+import { View, StyleSheet, ScrollView, Dimensions, Alert } from 'react-native';
+import { Card, Title, Paragraph, Button, Text, Dialog, Portal, TextInput } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme';
+import { CloudSyncService } from '../services/CloudSyncService';
+import { AuthService } from '../services/AuthService';
 
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen({ navigation }) {
+  const [syncing, setSyncing] = useState(false);
+  const [accountDialogVisible, setAccountDialogVisible] = useState(false);
+  const [pwdDialogVisible, setPwdDialogVisible] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [accountInfo, setAccountInfo] = useState({ profile: null, cloudMeta: null });
+
+  const syncUp = async () => {
+    try {
+      setSyncing(true);
+      await CloudSyncService.syncUp();
+      Alert.alert('成功', '已上传到云端');
+    } catch (e) {
+      if (String(e.message || '').includes('conflict')) {
+        Alert.alert(
+          '发现冲突',
+          '云端有更新的数据。建议先“从云端下载”。如果确定要用本地覆盖云端，请选择“强制上传”。',
+          [
+            { text: '取消', style: 'cancel' },
+            { text: '从云端下载', onPress: syncDown },
+            {
+              text: '强制上传',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  setSyncing(true);
+                  await CloudSyncService.forceSyncUp();
+                  Alert.alert('成功', '已强制覆盖云端');
+                } catch (err) {
+                  Alert.alert('同步失败', err.message || '强制上传失败');
+                } finally {
+                  setSyncing(false);
+                }
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert('同步失败', e.message || '请检查云端服务是否启动');
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const syncDown = async () => {
+    try {
+      setSyncing(true);
+      await CloudSyncService.syncDown();
+      Alert.alert('成功', '已从云端下载并覆盖本地数据');
+    } catch (e) {
+      Alert.alert('同步失败', e.message || '请检查云端服务是否启动');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const openAccountDialog = async () => {
+    try {
+      const profile = await AuthService.getProfile();
+      const cloudMeta = await CloudSyncService.getCloudMeta();
+      setAccountInfo({ profile, cloudMeta });
+    } catch {
+      setAccountInfo({ profile: null, cloudMeta: null });
+    }
+    setAccountDialogVisible(true);
+  };
+
+  const logout = async () => {
+    await AuthService.logout();
+    Alert.alert('已退出', '请重新登录');
+  };
+
+  const changePassword = async () => {
+    try {
+      await AuthService.changePassword({ oldPassword, newPassword });
+      setPwdDialogVisible(false);
+      setOldPassword('');
+      setNewPassword('');
+      Alert.alert('成功', '密码已修改');
+    } catch (e) {
+      Alert.alert('失败', e.message || '修改密码失败');
+    }
+  };
+
+  const deleteAccount = async () => {
+    Alert.alert(
+      '注销账号',
+      '将删除云端账号与云端数据（本地数据不会自动删除）。确定继续吗？',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确认注销',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AuthService.deleteAccount();
+              Alert.alert('已注销', '账号已删除，请重新注册/登录');
+            } catch (e) {
+              Alert.alert('失败', e.message || '注销失败');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView style={styles.container}>
       <LinearGradient
@@ -22,6 +131,18 @@ export default function HomeScreen({ navigation }) {
       </LinearGradient>
 
       <View style={styles.content}>
+        <Card style={styles.card} onPress={openAccountDialog}>
+          <Card.Content>
+            <View style={styles.cardHeader}>
+              <Ionicons name="person-circle" size={32} color={theme.colors.primary} />
+              <Title style={styles.cardTitle}>账号与云同步</Title>
+            </View>
+            <Paragraph style={styles.cardDescription}>
+              查看账号信息、云端版本号，支持修改密码/退出/注销
+            </Paragraph>
+          </Card.Content>
+        </Card>
+
         <Card style={styles.card} onPress={() => navigation.navigate('药品')}>
           <Card.Content>
             <View style={styles.cardHeader}>
@@ -77,8 +198,83 @@ export default function HomeScreen({ navigation }) {
           >
             查看报告
           </Button>
+
+          <Button
+            mode="contained"
+            icon="cloud-upload"
+            loading={syncing}
+            disabled={syncing}
+            onPress={syncUp}
+            style={styles.actionButton}
+            contentStyle={styles.actionButtonContent}
+          >
+            上传到云端
+          </Button>
+          <Button
+            mode="outlined"
+            icon="cloud-download"
+            loading={syncing}
+            disabled={syncing}
+            onPress={syncDown}
+            style={styles.actionButton}
+            contentStyle={styles.actionButtonContent}
+          >
+            从云端下载
+          </Button>
         </View>
       </View>
+
+      <Portal>
+        <Dialog visible={accountDialogVisible} onDismiss={() => setAccountDialogVisible(false)}>
+          <Dialog.Title>账号与云同步</Dialog.Title>
+          <Dialog.Content>
+            <Paragraph>
+              {accountInfo.profile
+                ? `当前用户：${accountInfo.profile.name}（${accountInfo.profile.email}）`
+                : '当前未获取到用户资料'}
+            </Paragraph>
+            <Paragraph style={{ marginTop: theme.spacing.sm }}>
+              {accountInfo.cloudMeta?.revision
+                ? `云端版本：${accountInfo.cloudMeta.revision}（${accountInfo.cloudMeta.updatedAt || '未知时间'}）`
+                : '云端版本：暂无（建议先上传或下载）'}
+            </Paragraph>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPwdDialogVisible(true)}>修改密码</Button>
+            <Button onPress={deleteAccount} textColor={theme.colors.error}>注销账号</Button>
+            <Button onPress={logout}>退出登录</Button>
+            <Button onPress={() => setAccountDialogVisible(false)}>关闭</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog visible={pwdDialogVisible} onDismiss={() => setPwdDialogVisible(false)}>
+          <Dialog.Title>修改密码</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="旧密码"
+              value={oldPassword}
+              onChangeText={setOldPassword}
+              secureTextEntry
+              mode="outlined"
+              style={styles.input}
+            />
+            <TextInput
+              label="新密码（至少6位）"
+              value={newPassword}
+              onChangeText={setNewPassword}
+              secureTextEntry
+              mode="outlined"
+              style={styles.input}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPwdDialogVisible(false)}>取消</Button>
+            <Button onPress={changePassword} disabled={!oldPassword || !newPassword}>
+              确定
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </ScrollView>
   );
 }
@@ -142,6 +338,9 @@ const styles = StyleSheet.create({
   },
   actionButtonContent: {
     paddingVertical: theme.spacing.sm,
+  },
+  input: {
+    marginBottom: theme.spacing.sm,
   },
 });
 

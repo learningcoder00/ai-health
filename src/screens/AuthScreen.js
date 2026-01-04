@@ -1,0 +1,170 @@
+import React, { useState } from 'react';
+import { View, StyleSheet, ImageBackground } from 'react-native';
+import { Button, Card, Paragraph, Text, TextInput, Title } from 'react-native-paper';
+import { theme } from '../theme';
+import { AuthService } from '../services/AuthService';
+import { isValidEmail, validatePassword, validateName } from '../utils/validation';
+
+export default function AuthScreen({ onAuthed }) {
+  const [mode, setMode] = useState('login'); // login | register
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const emailTrimmed = email.trim();
+  const passwordCheck = validatePassword(password);
+  const nameCheck = validateName(name);
+  const emailOk = isValidEmail(emailTrimmed);
+  const canSubmit =
+    !loading &&
+    emailTrimmed.length > 0 &&
+    emailOk &&
+    passwordCheck.ok &&
+    (mode !== 'register' || nameCheck.ok);
+
+  const submit = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      // 前端兜底校验（避免无效请求）
+      if (!emailOk) throw new Error('邮箱格式不正确');
+      if (!passwordCheck.ok) throw new Error(passwordCheck.message);
+      if (mode === 'register' && !nameCheck.ok) throw new Error(nameCheck.message);
+
+      if (mode === 'register') {
+        await AuthService.register({ email: emailTrimmed, password, name });
+      } else {
+        await AuthService.login({ email: emailTrimmed, password });
+      }
+      onAuthed?.();
+    } catch (e) {
+      setError(e.message || '登录失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <ImageBackground
+      source={require('../../assets/bk_1.png')}
+      style={styles.container}
+      resizeMode="cover"
+    >
+      <View style={styles.overlay} />
+      <Card style={styles.card}>
+        <Card.Content>
+          <Title style={styles.title}>{mode === 'register' ? '注册' : '登录'}</Title>
+          <Paragraph style={styles.subtitle}>云端同步需要账号登录（每个用户只能访问自己的数据）。</Paragraph>
+
+          {mode === 'register' && (
+            <TextInput
+              label="昵称（可选）"
+              value={name}
+              onChangeText={setName}
+              mode="outlined"
+              style={styles.input}
+              error={!nameCheck.ok}
+            />
+          )}
+          {mode === 'register' && !nameCheck.ok ? (
+            <Text style={styles.fieldErrorText}>{nameCheck.message}</Text>
+          ) : null}
+
+          <TextInput
+            label="邮箱"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            mode="outlined"
+            style={styles.input}
+            error={emailTrimmed.length > 0 && !emailOk}
+          />
+          {emailTrimmed.length > 0 && !emailOk ? (
+            <Text style={styles.fieldErrorText}>邮箱格式不正确</Text>
+          ) : null}
+          <TextInput
+            label="密码（至少6位）"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            mode="outlined"
+            style={styles.input}
+            error={!passwordCheck.ok && password.length > 0}
+          />
+          {!passwordCheck.ok && password.length > 0 ? (
+            <Text style={styles.fieldErrorText}>{passwordCheck.message}</Text>
+          ) : null}
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <Button
+            mode="contained"
+            onPress={submit}
+            loading={loading}
+            disabled={!canSubmit}
+            style={styles.primaryButton}
+          >
+            {mode === 'register' ? '注册并登录' : '登录'}
+          </Button>
+
+          <Button
+            mode="text"
+            onPress={() => setMode(mode === 'register' ? 'login' : 'register')}
+            disabled={loading}
+          >
+            {mode === 'register' ? '已有账号？去登录' : '没有账号？去注册'}
+          </Button>
+        </Card.Content>
+      </Card>
+    </ImageBackground>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.spacing.md,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  card: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+  },
+  title: {
+    marginBottom: theme.spacing.xs,
+  },
+  subtitle: {
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.md,
+  },
+  input: {
+    marginBottom: theme.spacing.sm,
+  },
+  primaryButton: {
+    marginTop: theme.spacing.sm,
+    borderRadius: theme.borderRadius.md,
+  },
+  errorText: {
+    color: theme.colors.error,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+  },
+  fieldErrorText: {
+    color: theme.colors.error,
+    marginTop: -theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+    fontSize: 12,
+  },
+});
+
+

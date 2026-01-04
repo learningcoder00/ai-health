@@ -6,7 +6,8 @@ export const MEDICINE_DB_CONFIG = {
   // 官网：https://www.juhe.cn/docs/api/id/77
   // 注意：该API可能处于维护状态，如不可用请切换其他API
   JUHE_API: {
-    BASE_URL: 'http://apis.juhe.cn/drug/query',
+    // 使用 https 以兼容 Web / iOS 等更严格的环境；若接口确实不支持 https，可在 Web 端走本地代理
+    BASE_URL: 'https://apis.juhe.cn/drug/query',
     API_KEY: '4cf1a2001a4c972985cef0dbb4cd5db4', // 已配置
     ENABLED: true, // 已启用
   },
@@ -37,6 +38,6 @@ export const MEDICINE_DB_CONFIG = {
   },
 };
 
-// 当前使用的API配置（已配置为聚合数据API）
+// 当前使用的API配置（仅作为默认/兼容；实际查询会按 ENABLED 数据源自动降级）
 export const CURRENT_API = MEDICINE_DB_CONFIG.JUHE_API;
 
