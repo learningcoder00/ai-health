@@ -1088,8 +1088,26 @@ const styles = StyleSheet.create({
   },
   medicineCard: {
     marginBottom: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    elevation: 2,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+      android: { elevation: 2 },
+      web: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+    }),
   },
   imageScrollView: {
     maxHeight: 200,
@@ -1107,7 +1125,7 @@ const styles = StyleSheet.create({
   },
   medicineName: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '800',
     flex: 1,
   },
   medicineActions: {
@@ -1133,10 +1151,10 @@ const styles = StyleSheet.create({
   remindersContainer: {
     marginTop: theme.spacing.md,
     padding: theme.spacing.sm,
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.colors.surfaceVariant,
     borderRadius: theme.borderRadius.sm,
     borderWidth: 1,
-    borderColor: 'rgba(74, 144, 226, 0.15)',
+    borderColor: theme.colors.outlineVariant,
   },
   remindersTitle: {
     fontSize: 14,
@@ -1254,7 +1272,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.sm,
     borderWidth: 1,
-    borderColor: 'rgba(74, 144, 226, 0.12)',
+    borderColor: theme.colors.outlineVariant,
   },
   manualFormTitle: {
     fontSize: 14,

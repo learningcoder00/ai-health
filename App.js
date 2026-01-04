@@ -3,10 +3,11 @@ import { Image, View, StyleSheet } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Provider as PaperProvider } from 'react-native-paper';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { useFonts } from 'expo-font';
 
 import HomeScreen from './src/screens/HomeScreen';
 import MedicineScreen from './src/screens/MedicineScreen';
@@ -32,7 +33,7 @@ const LogoTitle = () => {
   return (
     <View style={styles.logoTitleContainer}>
       <Image
-        source={require('./assets/logo_1.png')}
+        source={require('./assets/logo_2.png')}
         style={styles.logo}
         resizeMode="contain"
       />
@@ -41,6 +42,12 @@ const LogoTitle = () => {
 };
 
 export default function App() {
+  // Web/原生：确保图标字体加载完成，否则 Ionicons/MaterialCommunityIcons 可能显示为空白
+  const [fontsLoaded] = useFonts({
+    ...Ionicons.font,
+    ...MaterialCommunityIcons.font,
+  });
+
   const [authed, setAuthed] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
 
@@ -143,7 +150,11 @@ export default function App() {
     <PaperProvider theme={theme}>
       <NavigationContainer ref={navigationRef}>
         <StatusBar style="light" />
-        {checkingAuth ? (
+        {!fontsLoaded ? (
+          <View style={styles.loadingContainer}>
+            <Ionicons name="cloud-outline" size={32} color="#fff" />
+          </View>
+        ) : checkingAuth ? (
           <View style={styles.loadingContainer}>
             <Ionicons name="cloud-outline" size={32} color="#fff" />
           </View>
@@ -167,10 +178,18 @@ export default function App() {
 
                 return <Ionicons name={iconName} size={size} color={color} />;
               },
-              tabBarActiveTintColor: '#4A90E2',
-              tabBarInactiveTintColor: '#8E8E93',
+              tabBarActiveTintColor: theme.colors.primary,
+              tabBarInactiveTintColor: theme.colors.textSecondary,
+              tabBarStyle: {
+                backgroundColor: theme.colors.surface,
+                borderTopColor: theme.colors.outlineVariant,
+              },
+              tabBarLabelStyle: {
+                fontSize: 12,
+                paddingBottom: 2,
+              },
               headerStyle: {
-                backgroundColor: '#4A90E2',
+                backgroundColor: theme.colors.primary,
               },
               headerTintColor: '#fff',
               headerTitleStyle: {

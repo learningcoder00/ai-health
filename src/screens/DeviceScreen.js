@@ -5,6 +5,7 @@ import {
   ScrollView,
   RefreshControl,
   Dimensions,
+  Platform,
 } from 'react-native';
 import {
   Card,
@@ -295,17 +296,53 @@ const styles = StyleSheet.create({
   },
   statsCard: {
     marginBottom: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    elevation: 2,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+      android: { elevation: 2 },
+      web: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+    }),
   },
   card: {
     marginBottom: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    elevation: 2,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+      android: { elevation: 2 },
+      web: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+    }),
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '800',
     marginBottom: theme.spacing.md,
   },
   statsGrid: {
@@ -348,7 +385,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: theme.spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.background,
+    borderBottomColor: theme.colors.outlineVariant,
   },
   deviceInfo: {
     flexDirection: 'row',
@@ -369,7 +406,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   batteryChip: {
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.colors.surfaceVariant,
   },
   chart: {
     marginVertical: theme.spacing.sm,

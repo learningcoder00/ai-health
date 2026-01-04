@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, Dimensions, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Dimensions, Alert, Platform } from 'react-native';
 import { Card, Title, Paragraph, Button, Text, Dialog, Portal, TextInput } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -120,7 +120,7 @@ export default function HomeScreen({ navigation }) {
   return (
     <ScrollView style={styles.container}>
       <LinearGradient
-        colors={['#4A90E2', '#357ABD']}
+        colors={['#2563EB', '#7C3AED']}
         style={styles.header}
       >
         <View style={styles.headerContent}>
@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: '#fff',
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '800',
     marginTop: theme.spacing.md,
   },
   headerSubtitle: {
@@ -311,8 +311,26 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    elevation: 2,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+      android: { elevation: 2 },
+      web: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+    }),
   },
   cardHeader: {
     flexDirection: 'row',
@@ -322,7 +340,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     marginLeft: theme.spacing.sm,
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   cardDescription: {
     color: theme.colors.textSecondary,

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ImageBackground } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
+import { ImageBackground } from 'react-native';
 import { Button, Card, Paragraph, Text, TextInput, Title } from 'react-native-paper';
 import { theme } from '../theme';
 import { AuthService } from '../services/AuthService';
@@ -114,6 +115,7 @@ export default function AuthScreen({ onAuthed }) {
             mode="text"
             onPress={() => setMode(mode === 'register' ? 'login' : 'register')}
             disabled={loading}
+            style={styles.switchModeButton}
           >
             {mode === 'register' ? '已有账号？去登录' : '没有账号？去注册'}
           </Button>
@@ -132,20 +134,46 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    // 让背景图更“高级”：轻暗角 + 稍微冷色调
+    backgroundColor: 'rgba(2, 6, 23, 0.38)',
   },
   card: {
     width: '100%',
     maxWidth: 420,
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.shadow.colorStrong,
+        shadowOpacity: 1,
+        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 12 },
+      },
+      android: {
+        elevation: 4,
+      },
+      web: {
+        // RN Web 支持部分阴影属性
+        shadowColor: theme.shadow.colorStrong,
+        shadowOpacity: 1,
+        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 12 },
+      },
+    }),
   },
   title: {
     marginBottom: theme.spacing.xs,
+    fontSize: 26,
+    fontWeight: '800',
+    color: theme.colors.text,
   },
   subtitle: {
     color: theme.colors.textSecondary,
     marginBottom: theme.spacing.md,
+    lineHeight: 20,
   },
   input: {
     marginBottom: theme.spacing.sm,
@@ -153,6 +181,10 @@ const styles = StyleSheet.create({
   primaryButton: {
     marginTop: theme.spacing.sm,
     borderRadius: theme.borderRadius.md,
+    paddingVertical: 2,
+  },
+  switchModeButton: {
+    marginTop: theme.spacing.xs,
   },
   errorText: {
     color: theme.colors.error,

@@ -5,6 +5,7 @@ import {
   ScrollView,
   Dimensions,
   Share,
+  Platform,
 } from 'react-native';
 import {
   Card,
@@ -306,8 +307,26 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    elevation: 2,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+      android: { elevation: 2 },
+      web: {
+        shadowColor: theme.shadow.color,
+        shadowOpacity: 1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+      },
+    }),
   },
   scoreHeader: {
     flexDirection: 'row',
@@ -317,7 +336,7 @@ const styles = StyleSheet.create({
   },
   scoreTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   scoreValue: {
     fontSize: 32,
@@ -335,7 +354,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '800',
     marginBottom: theme.spacing.md,
   },
   overviewGrid: {
