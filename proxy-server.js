@@ -9,10 +9,11 @@
  * - GET  /api/medicine/tianapi?key=...&word=...
  * - GET  /api/medicine/jisu?appkey=...&name=...
  * - GET  /api/medicine/wanwei?appcode=...&name=...
+ * - POST /api/ai/siliconflow { apiKey, model, messages, max_tokens, temperature }
  *
  * Security note:
  * - For web, you can avoid sending keys from the browser by setting env vars:
- *   BAIDU_API_KEY, BAIDU_SECRET_KEY, JUHE_API_KEY
+ *   BAIDU_API_KEY, BAIDU_SECRET_KEY, JUHE_API_KEY, SILICONFLOW_API_KEY
  * - The proxy will use env keys if request does not provide them.
  *
  * Usage:
@@ -20,6 +21,7 @@
  *
  * Optional env:
  *   PORT=3001
+ *   SILICONFLOW_API_KEY=... (for AI API)
  */
 
 const http = require('http');
@@ -278,6 +280,33 @@ const server = http.createServer(async (req, res) => {
         json = { raw: r.body };
       }
       return sendJson(res, 200, json);
+    }
+
+    // AI API endpoints - 硅基流动 SiliconFlow
+    const ENV_SILICONFLOW_API_KEY = process.env.SILICONFLOW_API_KEY;
+    if (req.method === 'POST' && url.pathname === '/api/ai/siliconflow') {
+      const body = await readJsonBody(req);
+      const apiKey = body.apiKey || ENV_SILICONFLOW_API_KEY;
+      if (!apiKey) {
+        return sendJson(res, 400, { error: 'Missing SiliconFlow API key' });
+      }
+      const { model, messages, max_tokens, temperature } = body;
+      const targetUrl = 'https://api.siliconflow.cn/v1/chat/completions';
+      const r = await requestUrl(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ model, messages, max_tokens, temperature }),
+      });
+      let json;
+      try {
+        json = JSON.parse(r.body || '{}');
+      } catch {
+        json = { raw: r.body };
+      }
+      return sendJson(res, r.statusCode || 200, json);
     }
 
     return sendJson(res, 404, { error: 'Not found' });

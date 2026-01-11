@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Image, View, StyleSheet } from 'react-native';
+import { Image, View, StyleSheet, TouchableOpacity } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
@@ -14,6 +14,8 @@ import MedicineScreen from './src/screens/MedicineScreen';
 import DeviceScreen from './src/screens/DeviceScreen';
 import ReportScreen from './src/screens/ReportScreen';
 import AuthScreen from './src/screens/AuthScreen';
+import AIScreen from './src/screens/AIScreen';
+import AIIcon from './src/components/AIIcon';
 import { theme } from './src/theme';
 import {
   MedicineService,
@@ -24,20 +26,52 @@ import {
   MEDICINE_ACTION_SNOOZE_30M,
 } from './src/services/MedicineService';
 import { AuthService } from './src/services/AuthService';
+import { AutoCloudSyncService } from './src/services/AutoCloudSyncService';
 
 const Tab = createBottomTabNavigator();
 const navigationRef = createNavigationContainerRef();
 
-// Logo组件 - 作为标题显示
+// Web 端兜底：有些情况下模板 title 可能是字符串 "undefined"
+// 这里在模块加载阶段先纠正一次，后续再由 useEffect 根据登录状态覆盖。
+if (typeof document !== 'undefined') {
+  const t = String(document.title || '').trim();
+  if (t === '' || t === 'undefined') {
+    document.title = 'AI健康管家';
+  }
+}
+
+// Logo组件 - 作为标题显示（可点击回到首页）
 const LogoTitle = () => {
+  const handleLogoPress = () => {
+    if (navigationRef.isReady()) {
+      const currentRoute = navigationRef.getCurrentRoute();
+      
+      // 如果当前在首页，触发刷新（通过重新导航）
+      if (currentRoute?.name === '首页') {
+        // 先导航到其他页面再返回，触发 useEffect 重新加载
+        navigationRef.navigate('药品');
+        setTimeout(() => {
+          navigationRef.navigate('首页');
+        }, 50);
+      } else {
+        // 否则直接跳转到首页
+        navigationRef.navigate('首页');
+      }
+    }
+  };
+
   return (
-    <View style={styles.logoTitleContainer}>
+    <TouchableOpacity 
+      style={styles.logoTitleContainer} 
+      onPress={handleLogoPress}
+      activeOpacity={0.7}
+    >
       <Image
         source={require('./assets/logo_2.png')}
         style={styles.logo}
         resizeMode="contain"
       />
-    </View>
+    </TouchableOpacity>
   );
 };
 
@@ -62,6 +96,12 @@ export default function App() {
     })();
   }, []);
 
+  // 自动云同步（自动上传）：全局启动，内部会在未登录时自动跳过
+  useEffect(() => {
+    AutoCloudSyncService.start();
+    return () => AutoCloudSyncService.stop();
+  }, []);
+
   // Expo Web：修复浏览器标签标题显示为 undefined 的问题
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -70,7 +110,7 @@ export default function App() {
       document.title = '加载中...';
       return;
     }
-    document.title = authed ? 'AI健康管家' : '登录与注册';
+    document.title = authed ? 'AI健康管家' : '登录/注册';
   }, [authed, checkingAuth]);
 
   useEffect(() => {
@@ -148,7 +188,15 @@ export default function App() {
 
   return (
     <PaperProvider theme={theme}>
-      <NavigationContainer ref={navigationRef}>
+      <NavigationContainer
+        ref={navigationRef}
+        onReady={() => {
+          // Web 端：导航就绪后强制设置一次 document.title，防止 React Navigation 写入 undefined
+          if (Platform.OS === 'web' && typeof document !== 'undefined') {
+            document.title = authed ? 'AI健康管家' : '登录/注册';
+          }
+        }}
+      >
         <StatusBar style="light" />
         {!fontsLoaded ? (
           <View style={styles.loadingContainer}>
@@ -164,8 +212,13 @@ export default function App() {
           <Tab.Navigator
             screenOptions={({ route }) => ({
               tabBarIcon: ({ focused, color, size }) => {
-                let iconName;
+                // AI 助手使用自定义 SVG 图标
+                if (route.name === 'AI助手') {
+                  return <AIIcon size={size} color={color} focused={focused} />;
+                }
 
+                // 其他页面使用 Ionicons
+                let iconName;
                 if (route.name === '首页') {
                   iconName = focused ? 'home' : 'home-outline';
                 } else if (route.name === '药品') {
@@ -198,9 +251,12 @@ export default function App() {
               headerTitle: () => <LogoTitle />,
             })}
           >
-            <Tab.Screen name="首页" component={HomeScreen} />
+            <Tab.Screen name="首页">
+              {(props) => <HomeScreen {...props} onLogout={() => setAuthed(false)} />}
+            </Tab.Screen>
             <Tab.Screen name="药品" component={MedicineScreen} />
             <Tab.Screen name="设备" component={DeviceScreen} />
+            <Tab.Screen name="AI助手" component={AIScreen} />
             <Tab.Screen name="报告" component={ReportScreen} />
           </Tab.Navigator>
         )}

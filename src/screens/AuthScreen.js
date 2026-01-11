@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { ImageBackground } from 'react-native';
 import { Button, Card, Paragraph, Text, TextInput, Title } from 'react-native-paper';
 import { theme } from '../theme';
 import { AuthService } from '../services/AuthService';
+import { CloudSyncService } from '../services/CloudSyncService';
 import { isValidEmail, validatePassword, validateName } from '../utils/validation';
 
 export default function AuthScreen({ onAuthed }) {
@@ -13,6 +14,13 @@ export default function AuthScreen({ onAuthed }) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Web 端：确保登录/注册页的浏览器标签标题不会被其它逻辑覆盖成 undefined
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (typeof document === 'undefined') return;
+    document.title = mode === 'register' ? '登录/注册' : '登录/注册';
+  }, [mode]);
 
   const emailTrimmed = email.trim();
   const passwordCheck = validatePassword(password);
@@ -39,6 +47,16 @@ export default function AuthScreen({ onAuthed }) {
       } else {
         await AuthService.login({ email: emailTrimmed, password });
       }
+
+      // 登录/注册成功后，立即从云端同步数据（确保用户数据隔离）
+      try {
+        await CloudSyncService.syncDown();
+        console.log('登录后自动同步：云端数据已下载');
+      } catch (syncError) {
+        // 如果云端没有数据（新用户）或网络问题，不影响登录流程
+        console.warn('登录后自动同步失败:', syncError.message);
+      }
+
       onAuthed?.();
     } catch (e) {
       setError(e.message || '登录失败');

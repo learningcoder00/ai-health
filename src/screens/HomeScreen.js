@@ -9,7 +9,7 @@ import { AuthService } from '../services/AuthService';
 
 const { width } = Dimensions.get('window');
 
-export default function HomeScreen({ navigation }) {
+export default function HomeScreen({ navigation, onLogout }) {
   const [syncing, setSyncing] = useState(false);
   const [accountDialogVisible, setAccountDialogVisible] = useState(false);
   const [pwdDialogVisible, setPwdDialogVisible] = useState(false);
@@ -17,60 +17,18 @@ export default function HomeScreen({ navigation }) {
   const [newPassword, setNewPassword] = useState('');
   const [accountInfo, setAccountInfo] = useState({ profile: null, cloudMeta: null });
 
-  const syncUp = async () => {
-    try {
-      setSyncing(true);
-      await CloudSyncService.syncUp();
-      Alert.alert('成功', '已上传到云端');
-    } catch (e) {
-      if (String(e.message || '').includes('conflict')) {
-        Alert.alert(
-          '发现冲突',
-          '云端有更新的数据。建议先“从云端下载”。如果确定要用本地覆盖云端，请选择“强制上传”。',
-          [
-            { text: '取消', style: 'cancel' },
-            { text: '从云端下载', onPress: syncDown },
-            {
-              text: '强制上传',
-              style: 'destructive',
-              onPress: async () => {
-                try {
-                  setSyncing(true);
-                  await CloudSyncService.forceSyncUp();
-                  Alert.alert('成功', '已强制覆盖云端');
-                } catch (err) {
-                  Alert.alert('同步失败', err.message || '强制上传失败');
-                } finally {
-                  setSyncing(false);
-                }
-              },
-            },
-          ]
-        );
-      } else {
-        Alert.alert('同步失败', e.message || '请检查云端服务是否启动');
-      }
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const syncDown = async () => {
-    try {
-      setSyncing(true);
-      await CloudSyncService.syncDown();
-      Alert.alert('成功', '已从云端下载并覆盖本地数据');
-    } catch (e) {
-      Alert.alert('同步失败', e.message || '请检查云端服务是否启动');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   const openAccountDialog = async () => {
     try {
       const profile = await AuthService.getProfile();
-      const cloudMeta = await CloudSyncService.getCloudMeta();
+      let cloudMeta = await CloudSyncService.getCloudMeta();
+      // 如果本地还没有云端版本缓存，打开弹窗时主动向云端查询一次（不覆盖本地数据）
+      if (!cloudMeta?.revision) {
+        try {
+          cloudMeta = await CloudSyncService.refreshCloudMeta();
+        } catch {
+          // ignore: 离线/云端不可达时仍可打开弹窗
+        }
+      }
       setAccountInfo({ profile, cloudMeta });
     } catch {
       setAccountInfo({ profile: null, cloudMeta: null });
@@ -79,8 +37,19 @@ export default function HomeScreen({ navigation }) {
   };
 
   const logout = async () => {
-    await AuthService.logout();
-    Alert.alert('已退出', '请重新登录');
+    try {
+      await AuthService.logout();
+      // 立即通知 App.js 更新状态，触发跳转到登录页
+      if (onLogout) {
+        onLogout();
+      }
+      // 延迟显示提示，避免阻塞跳转动画
+      setTimeout(() => {
+        Alert.alert('已退出', '已成功退出登录');
+      }, 300);
+    } catch (e) {
+      Alert.alert('退出失败', e.message || '退出登录时发生错误');
+    }
   };
 
   const changePassword = async () => {
@@ -107,7 +76,14 @@ export default function HomeScreen({ navigation }) {
           onPress: async () => {
             try {
               await AuthService.deleteAccount();
-              Alert.alert('已注销', '账号已删除，请重新注册/登录');
+              // 立即通知 App.js 更新状态，触发跳转到登录页
+              if (onLogout) {
+                onLogout();
+              }
+              // 延迟显示提示，避免阻塞跳转动画
+              setTimeout(() => {
+                Alert.alert('已注销', '账号已删除，请重新注册/登录');
+              }, 300);
             } catch (e) {
               Alert.alert('失败', e.message || '注销失败');
             }
@@ -199,28 +175,6 @@ export default function HomeScreen({ navigation }) {
             查看报告
           </Button>
 
-          <Button
-            mode="contained"
-            icon="cloud-upload"
-            loading={syncing}
-            disabled={syncing}
-            onPress={syncUp}
-            style={styles.actionButton}
-            contentStyle={styles.actionButtonContent}
-          >
-            上传到云端
-          </Button>
-          <Button
-            mode="outlined"
-            icon="cloud-download"
-            loading={syncing}
-            disabled={syncing}
-            onPress={syncDown}
-            style={styles.actionButton}
-            contentStyle={styles.actionButtonContent}
-          >
-            从云端下载
-          </Button>
         </View>
       </View>
 

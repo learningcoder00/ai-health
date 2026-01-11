@@ -16,6 +16,8 @@ import {
   SegmentedButtons,
   ProgressBar,
   Divider,
+  Switch,
+  ActivityIndicator,
 } from 'react-native-paper';
 import { LineChart, BarChart } from 'react-native-chart-kit';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,16 +32,24 @@ export default function ReportScreen() {
   const [reportType, setReportType] = useState('week');
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [useAI, setUseAI] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
     loadReport();
-  }, [reportType]);
+  }, [reportType, useAI]);
 
   const loadReport = async () => {
     setLoading(true);
-    const data = await ReportService.generateReport(reportType);
-    setReport(data);
-    setLoading(false);
+    try {
+      const data = await ReportService.generateReport(reportType, useAI);
+      setReport(data);
+    } catch (error) {
+      console.error('加载报告失败:', error);
+      Alert.alert('错误', '生成报告失败，请重试');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const shareReport = async () => {
@@ -121,6 +131,14 @@ export default function ReportScreen() {
                 { value: 'month', label: '月报告' },
               ]}
             />
+            <View style={styles.aiToggleContainer}>
+              <Text style={styles.aiToggleLabel}>启用AI深度分析</Text>
+              <Switch
+                value={useAI}
+                onValueChange={setUseAI}
+                disabled={loading || aiLoading}
+              />
+            </View>
           </Card.Content>
         </Card>
 
@@ -218,6 +236,19 @@ export default function ReportScreen() {
               </Card.Content>
             </Card>
           </>
+        )}
+
+        {/* AI深度分析 */}
+        {report.aiAnalysis && (
+          <Card style={styles.card}>
+            <Card.Content>
+              <View style={styles.aiHeader}>
+                <Ionicons name="sparkles" size={24} color={theme.colors.primary} />
+                <Title style={styles.sectionTitle}>AI深度分析</Title>
+              </View>
+              <Text style={styles.aiAnalysisText}>{report.aiAnalysis}</Text>
+            </Card.Content>
+          </Card>
         )}
 
         {/* 健康建议 */}
@@ -409,6 +440,30 @@ const styles = StyleSheet.create({
   },
   buttonContent: {
     paddingVertical: theme.spacing.sm,
+  },
+  aiToggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: theme.spacing.md,
+    paddingTop: theme.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.outlineVariant,
+  },
+  aiToggleLabel: {
+    fontSize: 14,
+    color: theme.colors.text,
+  },
+  aiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  aiAnalysisText: {
+    fontSize: 14,
+    color: theme.colors.text,
+    lineHeight: 22,
+    textAlign: 'justify',
   },
 });
 

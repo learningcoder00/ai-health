@@ -51,6 +51,10 @@ export class AuthService {
     });
     await SecureStorage.setItem(AUTH_TOKEN_KEY, result.token);
     await SecureStorage.setItem(USER_PROFILE_KEY, result.profile);
+    
+    // 注册后清空本地业务数据（新用户应该从空白开始）
+    await this.clearLocalData();
+    
     return result.profile;
   }
 
@@ -61,6 +65,10 @@ export class AuthService {
     });
     await SecureStorage.setItem(AUTH_TOKEN_KEY, result.token);
     await SecureStorage.setItem(USER_PROFILE_KEY, result.profile);
+    
+    // 登录后清空本地数据，然后从云端同步（确保用户数据隔离）
+    await this.clearLocalData();
+    
     return result.profile;
   }
 
@@ -75,6 +83,25 @@ export class AuthService {
   static async logout() {
     await SecureStorage.removeItem(AUTH_TOKEN_KEY);
     await SecureStorage.removeItem(USER_PROFILE_KEY);
+    
+    // 退出登录时清除所有本地业务数据（安全性 + 隐私保护）
+    await this.clearLocalData();
+  }
+
+  // 清除所有本地业务数据（不包括 token 和 profile）
+  static async clearLocalData() {
+    const keysToRemove = [
+      '@medicines',
+      '@health_data',
+      '@devices',
+      '@medicine_reminders',
+      '@medicine_intake_logs',
+      '@ai_cache',
+      '@cloud_meta',
+    ];
+    for (const key of keysToRemove) {
+      await SecureStorage.removeItem(key, { silent: true });
+    }
   }
 
   static async changePassword({ oldPassword, newPassword }) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -23,12 +23,15 @@ import {
   SegmentedButtons,
   ProgressBar,
   Switch,
+  Divider,
 } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
+import ClockIcon from '../components/ClockIcon';
 import { theme } from '../theme';
 import { MedicineService } from '../services/MedicineService';
+import { ExportService } from '../services/ExportService';
 import { validateMedicineName, validateTimesText, validateDateRange } from '../utils/validation';
 
 export default function MedicineScreen() {
@@ -64,10 +67,42 @@ export default function MedicineScreen() {
   const [statsDays, setStatsDays] = useState('7');
   const [statsData, setStatsData] = useState(null);
 
+  // 新：结构化用药/提醒规则
+  const [reminderMode, setReminderMode] = useState('fixed_times'); // fixed_times | times_per_day | interval_hours | prn
+  const [timesPerDay, setTimesPerDay] = useState('2');
+  const [intervalHours, setIntervalHours] = useState('8');
+  const [intervalStartTime, setIntervalStartTime] = useState('08:00');
+  const [mealTag, setMealTag] = useState('none'); // none | before_meal | after_meal | bedtime
+  const [doseAmount, setDoseAmount] = useState('1');
+  const [doseUnit, setDoseUnit] = useState('片');
+
+  // 新：库存/到期/复购
+  const [stockDialogVisible, setStockDialogVisible] = useState(false);
+  const [stockEnabled, setStockEnabled] = useState(true);
+  const [stockCurrent, setStockCurrent] = useState('');
+  const [stockUnit, setStockUnit] = useState('片');
+  const [stockThreshold, setStockThreshold] = useState('');
+  const [expiryDate, setExpiryDate] = useState(''); // YYYY-MM-DD
+  const [expiryRemindDays, setExpiryRemindDays] = useState('7');
+  const [activeMedicineForStock, setActiveMedicineForStock] = useState(null);
+
+  // 新：历史时间轴
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [historyText, setHistoryText] = useState('');
+  const [activeMedicineForHistory, setActiveMedicineForHistory] = useState(null);
+
+  // 新：漏服补服指导
+  const [guidanceVisible, setGuidanceVisible] = useState(false);
+  const [guidanceText, setGuidanceText] = useState('');
+
   useEffect(() => {
     loadMedicines();
     requestPermissions();
   }, []);
+
+  const medicinesById = useMemo(() => {
+    return new Map(medicines.map((m) => [m.id, m]));
+  }, [medicines]);
 
   const formatTime = (iso) => {
     try {
@@ -78,6 +113,49 @@ export default function MedicineScreen() {
     } catch {
       return '';
     }
+  };
+
+  const getDisplayDose = (medicine) => {
+    const cfg = medicine?.reminderConfig || {};
+    if (cfg.doseAmount && cfg.doseUnit) return `每次${cfg.doseAmount}${cfg.doseUnit}`;
+    return medicine?.dosage || '每次1片';
+  };
+
+  const getDisplayFrequency = (medicine) => {
+    const cfg = medicine?.reminderConfig || {};
+    const mode = cfg.mode || (Array.isArray(cfg.times) && cfg.times.length ? 'fixed_times' : null);
+    const meal =
+      cfg.mealTag === 'before_meal'
+        ? '饭前'
+        : cfg.mealTag === 'after_meal'
+        ? '饭后'
+        : cfg.mealTag === 'bedtime'
+        ? '睡前'
+            : '';
+    let base = '';
+    if (mode === 'prn') base = '按需';
+    else if (mode === 'interval_hours') base = `每隔${cfg.intervalHours || 8}小时`;
+    else if (mode === 'times_per_day') base = `每日${cfg.timesPerDay || 2}次`;
+    else if (Array.isArray(cfg.times) && cfg.times.length) base = `定点: ${cfg.times.join(',')}`;
+    else base = medicine?.frequency || '每日2次';
+    return meal ? `${base}（${meal}）` : base;
+  };
+
+  // 根据提醒模式返回对应的图标
+  const getReminderIcon = (medicine) => {
+    const cfg = medicine?.reminderConfig || {};
+    const mode = cfg.mode || (Array.isArray(cfg.times) && cfg.times.length ? 'fixed_times' : null);
+    
+    if (mode === 'fixed_times') {
+      return <ClockIcon size={18} color={theme.colors.primary} />;
+    } else if (mode === 'interval_hours') {
+      return <Ionicons name="timer-outline" size={18} color={theme.colors.primary} />;
+    } else if (mode === 'times_per_day') {
+      return <Ionicons name="repeat-outline" size={18} color={theme.colors.primary} />;
+    } else if (mode === 'prn') {
+      return <Ionicons name="hand-right-outline" size={18} color={theme.colors.primary} />;
+    }
+    return <Ionicons name="time-outline" size={18} color={theme.colors.primary} />;
   };
 
   const requestPermissions = async () => {
@@ -160,7 +238,14 @@ export default function MedicineScreen() {
     const cfg = medicine.reminderConfig || {};
     setReminderEnabled(cfg.enabled !== false);
     setReminderPaused(cfg.paused === true);
+    setReminderMode(cfg.mode || (Array.isArray(cfg.times) && cfg.times.length ? 'fixed_times' : 'fixed_times'));
     setReminderTimesText(Array.isArray(cfg.times) && cfg.times.length ? cfg.times.join(',') : '08:00,20:00');
+    setTimesPerDay(String(cfg.timesPerDay || '2'));
+    setIntervalHours(String(cfg.intervalHours || '8'));
+    setIntervalStartTime(String(cfg.intervalStartTime || '08:00'));
+    setMealTag(String(cfg.mealTag || 'none'));
+    setDoseAmount(String(cfg.doseAmount || (medicine.dosage?.match(/([0-9]+(?:\.[0-9]+)?)/)?.[1] || '1')));
+    setDoseUnit(String(cfg.doseUnit || (medicine.dosage?.match(/([^\d\s/]+)\s*$/)?.[1] || '片')));
     setTherapyStartDate(cfg.startDate || '');
     setTherapyEndDate(cfg.endDate || '');
     setReminderSettingsVisible(true);
@@ -168,23 +253,53 @@ export default function MedicineScreen() {
 
   const saveReminderSettings = async () => {
     if (!activeMedicineForSettings) return;
-    const vt = validateTimesText(reminderTimesText);
-    if (!vt.ok) {
-      Alert.alert('提示', vt.message);
-      return;
-    }
     const dr = validateDateRange(therapyStartDate, therapyEndDate);
     if (!dr.ok) {
       Alert.alert('提示', dr.message);
       return;
     }
     try {
-      await MedicineService.updateReminderConfig(activeMedicineForSettings.id, {
+      const patch = {
         enabled: reminderEnabled,
         paused: reminderPaused,
-        times: vt.times,
+        mode: reminderMode,
+        mealTag,
+        doseAmount: Number(doseAmount),
+        doseUnit: String(doseUnit || '').trim(),
         startDate: therapyStartDate || undefined,
         endDate: therapyEndDate || undefined,
+      };
+
+      if (reminderMode === 'fixed_times') {
+        const vt = validateTimesText(reminderTimesText);
+        if (!vt.ok) {
+          Alert.alert('提示', vt.message);
+          return;
+        }
+        patch.times = vt.times;
+      } else if (reminderMode === 'times_per_day') {
+        patch.timesPerDay = Number(timesPerDay || 2);
+        patch.times = undefined;
+      } else if (reminderMode === 'interval_hours') {
+        // 基础校验交给 service.validateReminderConfigPatch，这里只做空值提示
+        if (!intervalHours || Number(intervalHours) <= 0) {
+          Alert.alert('提示', '请填写间隔小时（1-24）');
+          return;
+        }
+        if (!intervalStartTime) {
+          Alert.alert('提示', '请填写起始时间（HH:MM）');
+          return;
+        }
+        patch.intervalHours = Number(intervalHours);
+        patch.intervalStartTime = intervalStartTime;
+        patch.times = undefined;
+      } else if (reminderMode === 'prn') {
+        // 按需：不生成提醒，仅保留配置用于展示/统计
+        patch.times = undefined;
+      }
+
+      await MedicineService.updateReminderConfig(activeMedicineForSettings.id, {
+        ...patch,
       });
       setReminderSettingsVisible(false);
       await loadMedicines();
@@ -192,6 +307,166 @@ export default function MedicineScreen() {
     } catch (e) {
       Alert.alert('失败', e.message || '保存提醒设置失败');
     }
+  };
+
+  const openStockDialog = (medicine) => {
+    setActiveMedicineForStock(medicine);
+    const s = medicine.stock || {};
+    setStockEnabled(s.enabled !== false);
+    setStockCurrent(s.current != null ? String(s.current) : '');
+    setStockUnit(String(s.unit || '片'));
+    setStockThreshold(s.threshold != null ? String(s.threshold) : '');
+    setExpiryDate(String(s.expiryDate || ''));
+    setExpiryRemindDays(String(s.expiryRemindDays ?? 7));
+    setStockDialogVisible(true);
+  };
+
+  const saveStockConfig = async () => {
+    if (!activeMedicineForStock) return;
+    try {
+      await MedicineService.updateStockConfig(activeMedicineForStock.id, {
+        enabled: stockEnabled,
+        current: stockCurrent === '' ? undefined : Number(stockCurrent),
+        unit: stockUnit,
+        threshold: stockThreshold === '' ? undefined : Number(stockThreshold),
+        expiryDate: expiryDate || undefined,
+        expiryRemindDays: expiryRemindDays ? Number(expiryRemindDays) : 7,
+      });
+      setStockDialogVisible(false);
+      await loadMedicines();
+      Alert.alert('成功', '库存/到期设置已更新');
+    } catch (e) {
+      Alert.alert('失败', e.message || '保存失败');
+    }
+  };
+
+  // 用于存储历史记录的数组（用于渲染时间轴）
+  const [historyItems, setHistoryItems] = useState([]);
+
+  // 根据状态返回图标和颜色
+  const getStatusConfig = (status) => {
+    switch (status) {
+      case 'taken':
+        return {
+          icon: 'checkmark-circle',
+          color: theme.colors.success || '#4CAF50',
+          bgColor: '#E8F5E9',
+          label: '已服',
+        };
+      case 'missed':
+        return {
+          icon: 'close-circle',
+          color: theme.colors.error,
+          bgColor: '#FFEBEE',
+          label: '漏服',
+        };
+      case 'snoozed':
+        return {
+          icon: 'time',
+          color: theme.colors.warning || '#FF9800',
+          bgColor: '#FFF3E0',
+          label: '稍后',
+        };
+      case 'paused':
+        return {
+          icon: 'pause-circle',
+          color: theme.colors.textSecondary,
+          bgColor: '#F5F5F5',
+          label: '暂停',
+        };
+      default:
+        return {
+          icon: 'radio-button-off',
+          color: theme.colors.primary,
+          bgColor: '#E3F2FD',
+          label: '待服',
+        };
+    }
+  };
+
+  const openHistory = async (medicine) => {
+    setActiveMedicineForHistory(medicine);
+    setHistoryVisible(true);
+    try {
+      const days = 30; // 固定显示最近30天
+      const reminders = await MedicineService.getRemindersForMedicine(medicine.id);
+      const logs = await MedicineService.getIntakeLogs(medicine.id);
+      const start = new Date();
+      start.setDate(start.getDate() - (days - 1));
+      start.setHours(0, 0, 0, 0);
+      
+      const items = reminders
+        .filter((r) => new Date(r.scheduledAt) >= start)
+        .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt)); // 最早的在前（从上到下按时间顺序）
+      
+      // 转换为结构化数据
+      const structuredItems = items.map((r) => {
+        const t = new Date(r.scheduledAt);
+        return {
+          date: t.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }),
+          time: t.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          status: r.status,
+          fullDate: t,
+        };
+      });
+      
+      setHistoryItems(structuredItems);
+      
+      // 保留原有的文本格式作为备用
+      const lines = [];
+      lines.push(`近 ${days} 天时间轴（${medicine.name}）`);
+      lines.push('—');
+      for (const r of items) {
+        const t = new Date(r.scheduledAt);
+        const date = t.toLocaleDateString('zh-CN');
+        const time = t.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        const status =
+          r.status === 'taken'
+            ? '已服'
+            : r.status === 'missed'
+              ? '漏服'
+              : r.status === 'snoozed'
+                ? '稍后'
+                : r.status === 'paused'
+                  ? '暂停'
+                  : '待服';
+        lines.push(`${date} ${time}  -  ${status}`);
+      }
+      lines.push('—');
+      lines.push(`打卡/动作记录（最近 ${Math.min(50, logs.length)} 条）`);
+      const recentLogs = logs
+        .slice()
+        .sort((a, b) => new Date(a.at) - new Date(b.at))
+        .slice(-50);
+      for (const l of recentLogs) {
+        const at = l.at ? new Date(l.at).toLocaleString('zh-CN') : '';
+        lines.push(`${at}  -  ${l.action}（来源:${l.source || ''}）`);
+      }
+      setHistoryText(lines.join('\n'));
+    } catch (e) {
+      setHistoryText(`加载失败：${e?.message || '未知错误'}`);
+    }
+  };
+
+  const showMakeupGuidance = (medicineId, reminder) => {
+    const med = medicinesById.get(medicineId);
+    const scheduledAt = reminder?.scheduledAt ? new Date(reminder.scheduledAt) : null;
+    const now = new Date();
+    let msg = '补服指导（通用建议）：\n';
+    msg += '1) 如果离下一次服药时间很近：通常建议跳过漏服剂量，按原计划继续。\n';
+    msg += '2) 如果刚错过不久：通常建议尽快补服。\n';
+    msg += '3) 不要自行加倍剂量。\n';
+    msg += '4) 若有特殊说明或慢病用药：请以医嘱/说明书为准，必要时咨询医生/药师。\n';
+    if (med?.reminderConfig?.mealTag) {
+      const tag = med.reminderConfig.mealTag;
+      msg += `\n提示：本药设置为 ${tag === 'before_meal' ? '饭前' : tag === 'after_meal' ? '饭后' : tag === 'bedtime' ? '睡前' : '不限'}。\n`;
+    }
+    if (scheduledAt) {
+      const diffMin = Math.round((now.getTime() - scheduledAt.getTime()) / 60000);
+      msg += `\n本次提醒时间：${scheduledAt.toLocaleString('zh-CN')}（已过去约 ${diffMin} 分钟）`;
+    }
+    setGuidanceText(msg);
+    setGuidanceVisible(true);
   };
 
   const openStats = async (medicine) => {
@@ -546,11 +821,12 @@ export default function MedicineScreen() {
                   )}
                   <View style={styles.medicineInfo}>
                     <Chip icon="flask" style={styles.chip}>
-                      {medicine.dosage}
+                      {getDisplayDose(medicine)}
                     </Chip>
-                    <Chip icon="time" style={styles.chip}>
-                      {medicine.frequency}
-                    </Chip>
+                    <View style={styles.chipWithCustomIcon}>
+                      {getReminderIcon(medicine)}
+                      <Text style={styles.chipText}>{getDisplayFrequency(medicine)}</Text>
+                    </View>
                   </View>
 
                   {/* 今日提醒（闭环打卡） */}
@@ -582,6 +858,17 @@ export default function MedicineScreen() {
                                   ? '稍后'
                                   : '待服'}
                           </Chip>
+
+                          {r.status === 'missed' && (
+                            <Button
+                              mode="text"
+                              compact
+                              onPress={() => showMakeupGuidance(medicine.id, r)}
+                              style={styles.reminderActionButton}
+                            >
+                              补服指导
+                            </Button>
+                          )}
 
                           {(r.status === 'scheduled' || r.status === 'snoozed') && (
                             <View style={styles.reminderActions}>
@@ -615,6 +902,12 @@ export default function MedicineScreen() {
                     </Button>
                     <Button mode="text" onPress={() => openStats(medicine)}>
                       统计
+                    </Button>
+                    <Button mode="text" onPress={() => openHistory(medicine)}>
+                      历史
+                    </Button>
+                    <Button mode="text" onPress={() => openStockDialog(medicine)}>
+                      库存
                     </Button>
                   </View>
                   <Paragraph style={styles.medicineDate}>
@@ -855,89 +1148,143 @@ export default function MedicineScreen() {
             <ScrollView style={styles.detailsScrollView}>
               {medicineDetails && (
                 <>
-                  {medicineDetails.name && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>药品名称：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.name}</Text>
+                  {/* 顶部摘要区（更像说明书） */}
+                  <View style={styles.detailsHeader}>
+                    <View style={styles.detailsHeaderTopRow}>
+                      <Text style={styles.detailsTitleText} numberOfLines={2}>
+                        {medicineDetails.name || '（未识别到药品名称）'}
+                      </Text>
+                      <View style={styles.detailsChipsRow}>
+                        <Chip
+                          compact
+                          style={[
+                            styles.sourceChip,
+                            medicineDetails.aiGenerated ? styles.sourceChipAI : styles.sourceChipDb,
+                          ]}
+                          textStyle={styles.sourceChipText}
+                          icon={medicineDetails.aiGenerated ? 'sparkles' : 'file-document-outline'}
+                        >
+                          {medicineDetails.aiGenerated ? 'AI生成' : '说明书'}
+                        </Chip>
+                      </View>
                     </View>
+
+                    {(medicineDetails.dosage || medicineDetails.frequency) && (
+                      <View style={styles.detailsMetaRow}>
+                        {medicineDetails.dosage ? (
+                          <Text style={styles.detailsMetaText}>剂量：{medicineDetails.dosage}</Text>
+                        ) : null}
+                        {medicineDetails.frequency ? (
+                          <Text style={styles.detailsMetaText}>频次：{medicineDetails.frequency}</Text>
+                        ) : null}
+                      </View>
+                    )}
+
+                    {medicineDetails.aiGenerated ? (
+                      <View style={styles.aiNoteBox}>
+                        <Text style={styles.aiNoteText}>
+                          说明：以下内容由 AI 根据药品名称/包装文字生成，仅供参考；请以说明书/医嘱为准。
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <Divider style={styles.detailsDivider} />
+
+                  {/* 说明书字段分组显示 */}
+                  {(medicineDetails.indication || medicineDetails.usage) && (
+                    <>
+                      <Text style={styles.sectionTitle}>用途与用法</Text>
+                      {medicineDetails.indication ? (
+                        <View style={styles.detailBlock}>
+                          <Text style={styles.detailLabel}>适应症 / 用于治疗</Text>
+                          <Text style={styles.detailValue}>{medicineDetails.indication}</Text>
+                        </View>
+                      ) : null}
+                      {medicineDetails.usage ? (
+                        <View style={styles.detailBlock}>
+                          <Text style={styles.detailLabel}>用法用量</Text>
+                          <Text style={styles.detailValue}>{medicineDetails.usage}</Text>
+                        </View>
+                      ) : null}
+                    </>
                   )}
-                  {medicineDetails.dosage && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>服用剂量：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.dosage}</Text>
-                    </View>
+
+                  {(medicineDetails.contraindication || medicineDetails.precautions) && (
+                    <>
+                      <Text style={styles.sectionTitle}>风险提示</Text>
+                      {medicineDetails.contraindication ? (
+                        <View style={styles.detailBlock}>
+                          <Text style={styles.detailLabel}>禁忌</Text>
+                          <Text style={styles.detailValue}>{medicineDetails.contraindication}</Text>
+                        </View>
+                      ) : null}
+                      {medicineDetails.precautions ? (
+                        <View style={styles.detailBlock}>
+                          <Text style={styles.detailLabel}>注意事项</Text>
+                          <Text style={styles.detailValue}>{medicineDetails.precautions}</Text>
+                        </View>
+                      ) : null}
+                    </>
                   )}
-                  {medicineDetails.frequency && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>服用频率：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.frequency}</Text>
-                    </View>
+
+                  {(medicineDetails.sideEffects || medicineDetails.interactions || medicineDetails.storage) && (
+                    <>
+                      <Text style={styles.sectionTitle}>其它信息</Text>
+                      {medicineDetails.sideEffects ? (
+                        <View style={styles.detailBlock}>
+                          <Text style={styles.detailLabel}>不良反应</Text>
+                          <Text style={styles.detailValue}>{medicineDetails.sideEffects}</Text>
+                        </View>
+                      ) : null}
+                      {medicineDetails.interactions ? (
+                        <View style={styles.detailBlock}>
+                          <Text style={styles.detailLabel}>药物相互作用</Text>
+                          <Text style={styles.detailValue}>{medicineDetails.interactions}</Text>
+                        </View>
+                      ) : null}
+                      {medicineDetails.storage ? (
+                        <View style={styles.detailBlock}>
+                          <Text style={styles.detailLabel}>贮藏</Text>
+                          <Text style={styles.detailValue}>{medicineDetails.storage}</Text>
+                        </View>
+                      ) : null}
+                    </>
                   )}
-                  {medicineDetails.specification && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>规格：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.specification}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.manufacturer && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>生产厂家：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.manufacturer}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.approvalNumber && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>批准文号：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.approvalNumber}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.indication && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>适应症：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.indication}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.usage && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>用法用量：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.usage}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.contraindication && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>禁忌：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.contraindication}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.sideEffects && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>不良反应：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.sideEffects}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.precautions && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>注意事项：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.precautions}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.interactions && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>药物相互作用：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.interactions}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.storage && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>贮藏：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.storage}</Text>
-                    </View>
-                  )}
-                  {medicineDetails.description && (
-                    <View style={styles.detailItem}>
-                      <Text style={styles.detailLabel}>说明书：</Text>
-                      <Text style={styles.detailValue}>{medicineDetails.description}</Text>
-                    </View>
+
+                  {(medicineDetails.specification ||
+                    medicineDetails.manufacturer ||
+                    medicineDetails.approvalNumber ||
+                    medicineDetails.description) && (
+                    <>
+                      <Text style={styles.sectionTitle}>说明书与包装信息</Text>
+                      {medicineDetails.specification ? (
+                        <View style={styles.detailInlineRow}>
+                          <Text style={styles.detailInlineLabel}>规格</Text>
+                          <Text style={styles.detailInlineValue}>{medicineDetails.specification}</Text>
+                        </View>
+                      ) : null}
+                      {medicineDetails.manufacturer ? (
+                        <View style={styles.detailInlineRow}>
+                          <Text style={styles.detailInlineLabel}>生产厂家</Text>
+                          <Text style={styles.detailInlineValue}>{medicineDetails.manufacturer}</Text>
+                        </View>
+                      ) : null}
+                      {medicineDetails.approvalNumber ? (
+                        <View style={styles.detailInlineRow}>
+                          <Text style={styles.detailInlineLabel}>批准文号</Text>
+                          <Text style={styles.detailInlineValue}>{medicineDetails.approvalNumber}</Text>
+                        </View>
+                      ) : null}
+                      {medicineDetails.description ? (
+                        <View style={styles.detailBlock}>
+                          <Text style={styles.detailLabel}>说明书（原文/摘要）</Text>
+                          <Text style={[styles.detailValue, styles.detailValueLong]}>
+                            {medicineDetails.description}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </>
                   )}
                 </>
               )}
@@ -972,13 +1319,91 @@ export default function MedicineScreen() {
               <Switch value={reminderPaused} onValueChange={setReminderPaused} />
             </View>
 
-            <TextInput
-              label="每天提醒时间点（逗号分隔，如 08:00,14:00,20:00）"
-              value={reminderTimesText}
-              onChangeText={setReminderTimesText}
-              mode="outlined"
-              style={styles.input}
+            <SegmentedButtons
+              value={reminderMode}
+              onValueChange={setReminderMode}
+              buttons={[
+                { value: 'fixed_times', label: '定点' },
+                { value: 'times_per_day', label: '每日N次' },
+                { value: 'interval_hours', label: '间隔' },
+                { value: 'prn', label: '按需' },
+              ]}
+              style={{ marginBottom: theme.spacing.md }}
             />
+
+            {reminderMode === 'fixed_times' && (
+              <TextInput
+                label="每天提醒时间点（逗号分隔，如 08:00,14:00,20:00）"
+                value={reminderTimesText}
+                onChangeText={setReminderTimesText}
+                mode="outlined"
+                style={styles.input}
+              />
+            )}
+            {reminderMode === 'times_per_day' && (
+              <TextInput
+                label="每日次数（1-12）"
+                value={timesPerDay}
+                onChangeText={setTimesPerDay}
+                mode="outlined"
+                keyboardType="numeric"
+                style={styles.input}
+              />
+            )}
+            {reminderMode === 'interval_hours' && (
+              <>
+                <TextInput
+                  label="间隔小时（1-24）"
+                  value={intervalHours}
+                  onChangeText={setIntervalHours}
+                  mode="outlined"
+                  keyboardType="numeric"
+                  style={styles.input}
+                />
+                <TextInput
+                  label="起始时间（HH:MM）"
+                  value={intervalStartTime}
+                  onChangeText={setIntervalStartTime}
+                  mode="outlined"
+                  style={styles.input}
+                />
+              </>
+            )}
+            {reminderMode === 'prn' && (
+              <Paragraph style={styles.hintText}>
+                按需用药：不会生成系统提醒，但会保留用药方案信息用于展示和历史统计。
+              </Paragraph>
+            )}
+
+            <SegmentedButtons
+              value={mealTag}
+              onValueChange={setMealTag}
+              buttons={[
+                { value: 'none', label: '不限' },
+                { value: 'before_meal', label: '饭前' },
+                { value: 'after_meal', label: '饭后' },
+                { value: 'bedtime', label: '睡前' },
+              ]}
+              style={{ marginBottom: theme.spacing.md }}
+            />
+
+            <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
+              <TextInput
+                label="每次用量"
+                value={doseAmount}
+                onChangeText={setDoseAmount}
+                mode="outlined"
+                keyboardType="numeric"
+                style={[styles.input, { flex: 1 }]}
+              />
+              <TextInput
+                label="单位（片/粒/ml…）"
+                value={doseUnit}
+                onChangeText={setDoseUnit}
+                mode="outlined"
+                style={[styles.input, { flex: 1 }]}
+              />
+            </View>
             <TextInput
               label="疗程开始日期（YYYY-MM-DD，可空）"
               value={therapyStartDate}
@@ -1054,6 +1479,145 @@ export default function MedicineScreen() {
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setStatsVisible(false)}>关闭</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* 库存/到期设置对话框 */}
+        <Dialog visible={stockDialogVisible} onDismiss={() => setStockDialogVisible(false)}>
+          <Dialog.Title>库存 / 到期 / 复购</Dialog.Title>
+          <Dialog.Content>
+            <View style={styles.switchRow}>
+              <Text>启用库存提示</Text>
+              <Switch value={stockEnabled} onValueChange={setStockEnabled} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
+              <TextInput
+                label="当前库存"
+                value={stockCurrent}
+                onChangeText={setStockCurrent}
+                mode="outlined"
+                keyboardType="numeric"
+                style={[styles.input, { flex: 1 }]}
+              />
+              <TextInput
+                label="单位"
+                value={stockUnit}
+                onChangeText={setStockUnit}
+                mode="outlined"
+                style={[styles.input, { flex: 1 }]}
+              />
+            </View>
+            <TextInput
+              label="低库存阈值（≤则提醒）"
+              value={stockThreshold}
+              onChangeText={setStockThreshold}
+              mode="outlined"
+              keyboardType="numeric"
+              style={styles.input}
+            />
+            <TextInput
+              label="到期日期（YYYY-MM-DD，可空）"
+              value={expiryDate}
+              onChangeText={setExpiryDate}
+              mode="outlined"
+              style={styles.input}
+            />
+            <TextInput
+              label="提前提醒天数（默认7）"
+              value={expiryRemindDays}
+              onChangeText={setExpiryRemindDays}
+              mode="outlined"
+              keyboardType="numeric"
+              style={styles.input}
+            />
+            <Paragraph style={styles.hintText}>
+              提示：移动端会尝试安排“到期/低库存”系统通知（Web 端仅展示提示）。
+            </Paragraph>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setStockDialogVisible(false)}>取消</Button>
+            <Button mode="contained" onPress={saveStockConfig}>保存</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* 历史时间轴对话框 */}
+        <Dialog visible={historyVisible} onDismiss={() => setHistoryVisible(false)}>
+          <Dialog.Title>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="calendar-outline" size={22} color={theme.colors.primary} style={{ marginRight: 8 }} />
+              用药历史时间轴
+            </View>
+          </Dialog.Title>
+          <Dialog.Content>
+            {activeMedicineForHistory && (
+              <View style={styles.historyHeader}>
+                <Text style={styles.historyMedicineName}>{activeMedicineForHistory.name}</Text>
+                <Text style={styles.historySubtitle}>最近 30 天用药记录</Text>
+              </View>
+            )}
+            <ScrollView style={{ maxHeight: 500 }}>
+              {historyItems.length === 0 ? (
+                <View style={styles.historyEmpty}>
+                  <Ionicons name="calendar-outline" size={48} color={theme.colors.textSecondary} />
+                  <Text style={styles.historyEmptyText}>暂无用药记录</Text>
+                </View>
+              ) : (
+                <View style={styles.timeline}>
+                  {historyItems.map((item, index) => {
+                    const config = getStatusConfig(item.status);
+                    const isLast = index === historyItems.length - 1;
+                    return (
+                      <View key={index} style={styles.timelineItem}>
+                        {/* 时间轴线条 */}
+                        {!isLast && <View style={styles.timelineLine} />}
+                        
+                        {/* 状态图标 */}
+                        <View style={[styles.timelineIcon, { backgroundColor: config.bgColor }]}>
+                          <Ionicons name={config.icon} size={20} color={config.color} />
+                        </View>
+                        
+                        {/* 记录卡片 */}
+                        <View style={[styles.timelineCard, isLast && styles.timelineCardLast]}>
+                          <View style={styles.timelineCardHeader}>
+                            <View style={styles.timelineTime}>
+                              <Ionicons name="time-outline" size={14} color={theme.colors.textSecondary} />
+                              <Text style={styles.timelineTimeText}>
+                                {item.date} {item.time}
+                              </Text>
+                            </View>
+                            <Chip
+                              icon={() => <Ionicons name={config.icon} size={14} color={config.color} />}
+                              style={[styles.statusChip, { backgroundColor: config.bgColor }]}
+                              textStyle={{ color: config.color, fontSize: 12 }}
+                            >
+                              {config.label}
+                            </Chip>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </ScrollView>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setHistoryVisible(false)}>关闭</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* 漏服补服指导对话框 */}
+        <Dialog visible={guidanceVisible} onDismiss={() => setGuidanceVisible(false)}>
+          <Dialog.Title>漏服补服指导</Dialog.Title>
+          <Dialog.Content>
+            <ScrollView style={{ maxHeight: 360 }}>
+              <Text style={{ fontSize: 14, lineHeight: 22, color: theme.colors.text }}>
+                {guidanceText || '暂无'}
+              </Text>
+            </ScrollView>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setGuidanceVisible(false)}>关闭</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -1142,6 +1706,19 @@ const styles = StyleSheet.create({
   },
   chip: {
     marginRight: theme.spacing.xs,
+  },
+  chipWithCustomIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surfaceVariant,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    gap: 6,
+  },
+  chipText: {
+    fontSize: 14,
+    color: theme.colors.text,
   },
   medicineDate: {
     marginTop: theme.spacing.sm,
@@ -1293,6 +1870,104 @@ const styles = StyleSheet.create({
   detailsScrollView: {
     maxHeight: 400,
   },
+  detailsHeader: {
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    marginBottom: theme.spacing.md,
+  },
+  detailsHeaderTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  detailsTitleText: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '800',
+    color: theme.colors.text,
+    lineHeight: 24,
+  },
+  detailsChipsRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.xs,
+    alignItems: 'center',
+  },
+  sourceChip: {
+    height: 28,
+  },
+  sourceChipDb: {
+    backgroundColor: theme.colors.surfaceVariant,
+  },
+  sourceChipAI: {
+    backgroundColor: 'rgba(124, 58, 237, 0.14)',
+  },
+  sourceChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  detailsMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+  },
+  detailsMetaText: {
+    color: theme.colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  aiNoteBox: {
+    marginTop: theme.spacing.sm,
+    padding: theme.spacing.sm,
+    backgroundColor: theme.colors.surfaceVariant,
+    borderRadius: theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+  },
+  aiNoteText: {
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  detailsDivider: {
+    marginBottom: theme.spacing.md,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: theme.colors.primary,
+    marginBottom: theme.spacing.sm,
+  },
+  detailBlock: {
+    marginBottom: theme.spacing.md,
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+  },
+  detailInlineRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+  },
+  detailInlineLabel: {
+    width: 76,
+    color: theme.colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  detailInlineValue: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   detailItem: {
     marginBottom: theme.spacing.md,
   },
@@ -1306,6 +1981,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.text,
     lineHeight: 20,
+  },
+  detailValueLong: {
+    lineHeight: 22,
   },
   recognitionResultContainer: {
     marginTop: theme.spacing.md,
@@ -1324,6 +2002,96 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginBottom: theme.spacing.xs,
     lineHeight: 20,
+  },
+  // 历史时间轴样式
+  historyHeader: {
+    marginBottom: theme.spacing.md,
+  },
+  historyMedicineName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginBottom: theme.spacing.xxs,
+  },
+  historySubtitle: {
+    fontSize: 14,
+    color: theme.colors.textSecondary,
+  },
+  historyEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: theme.spacing.xl * 2,
+  },
+  historyEmptyText: {
+    marginTop: theme.spacing.md,
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+  },
+  timeline: {
+    paddingLeft: theme.spacing.sm,
+  },
+  timelineItem: {
+    position: 'relative',
+    paddingLeft: 40,
+    paddingBottom: theme.spacing.md,
+    minHeight: 72, // 固定每个时间轴项的最小高度（图标36 + 卡片56 - 重叠部分）
+  },
+  timelineLine: {
+    position: 'absolute',
+    left: 17,
+    top: 36,
+    bottom: 0,
+    width: 2,
+    backgroundColor: theme.colors.outlineVariant,
+  },
+  timelineIcon: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.surface,
+  },
+  timelineCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    minHeight: 56, // 确保所有卡片高度一致
+  },
+  timelineCardLast: {
+    marginBottom: 0,
+  },
+  timelineCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 24, // 确保内容行高度一致
+    gap: theme.spacing.sm, // 时间和状态之间的间距
+  },
+  timelineTime: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1, // 占据剩余空间
+    flexShrink: 1, // 允许适当收缩以容纳 Chip
+  },
+  timelineTimeText: {
+    fontSize: 14,
+    color: theme.colors.text,
+    fontWeight: '600',
+    lineHeight: 20, // 固定行高
+    flexShrink: 0, // 防止文字被压缩
+  },
+  statusChip: {
+    height: 26,
+    minWidth: 60, // 确保所有状态 Chip 宽度基本一致
+    flexShrink: 0, // 防止 Chip 被压缩
   },
 });
 

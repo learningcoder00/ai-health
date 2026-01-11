@@ -3,6 +3,22 @@ import { Platform } from 'react-native';
 import { EncryptionService } from '../services/EncryptionService';
 
 /**
+ * 轻量变更通知（用于自动云同步等场景）
+ * 只通知 key/action，不携带 value（避免大对象复制与敏感数据泄漏）
+ */
+const _listeners = new Set();
+function _notifyChange(evt) {
+  for (const fn of _listeners) {
+    try {
+      fn?.(evt);
+    } catch (e) {
+      // 避免监听者异常影响主流程
+      console.warn('SecureStorage listener error:', e);
+    }
+  }
+}
+
+/**
  * 敏感数据存储键列表
  * 这些键对应的数据会被加密存储
  */
@@ -30,6 +46,16 @@ function isSensitiveKey(key) {
  * 对敏感数据进行加密存储，非敏感数据正常存储
  */
 export const SecureStorage = {
+  /**
+   * 订阅存储变更
+   * @param {(evt:{action:'set'|'remove'|'clear', key?:string}) => void} listener
+   * @returns {() => void} unsubscribe
+   */
+  subscribe(listener) {
+    _listeners.add(listener);
+    return () => _listeners.delete(listener);
+  },
+
   /**
    * 获取存储项
    * 如果是敏感数据，会自动解密
@@ -79,7 +105,7 @@ export const SecureStorage = {
    * 设置存储项
    * 如果是敏感数据，会自动加密
    */
-  async setItem(key, value) {
+  async setItem(key, value, options = {}) {
     try {
       let stringValue;
 
@@ -101,6 +127,7 @@ export const SecureStorage = {
       }
 
       await AsyncStorage.setItem(key, stringValue);
+      if (!options?.silent) _notifyChange({ action: 'set', key });
       return true;
     } catch (error) {
       console.error('保存存储失败:', error);
@@ -111,9 +138,10 @@ export const SecureStorage = {
   /**
    * 删除存储项
    */
-  async removeItem(key) {
+  async removeItem(key, options = {}) {
     try {
       await AsyncStorage.removeItem(key);
+      if (!options?.silent) _notifyChange({ action: 'remove', key });
       return true;
     } catch (error) {
       console.error('删除存储失败:', error);
@@ -124,9 +152,10 @@ export const SecureStorage = {
   /**
    * 清空所有存储
    */
-  async clear() {
+  async clear(options = {}) {
     try {
       await AsyncStorage.clear();
+      if (!options?.silent) _notifyChange({ action: 'clear' });
       return true;
     } catch (error) {
       console.error('清空存储失败:', error);

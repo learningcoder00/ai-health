@@ -4,12 +4,36 @@ import { BAIDU_OCR_CONFIG } from '../config/baiduOCR';
 import { WEB_PROXY_CONFIG } from '../config/webProxy';
 import { SecureStorage } from '../utils/secureStorage';
 import { MedicineDBService } from './MedicineDBService';
+import { AIService } from './AIService';
+
+const MED_GUIDE_CACHE_PREFIX = '@medicine_guide_cache:';
+const MED_GUIDE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 天
 
 /**
  * 百度OCR服务
  * 负责处理图片识别、Token管理等
  */
 export class OCRService {
+  static async getCachedMedicineGuide(name) {
+    try {
+      const key = `${MED_GUIDE_CACHE_PREFIX}${String(name || '').trim()}`;
+      const cached = await SecureStorage.getItem(key);
+      if (!cached || !cached.cachedAt || !cached.data) return null;
+      if (Date.now() - cached.cachedAt > MED_GUIDE_CACHE_TTL_MS) return null;
+      return cached.data;
+    } catch {
+      return null;
+    }
+  }
+
+  static async cacheMedicineGuide(name, data) {
+    try {
+      const key = `${MED_GUIDE_CACHE_PREFIX}${String(name || '').trim()}`;
+      await SecureStorage.setItem(key, { cachedAt: Date.now(), data });
+    } catch {
+      // ignore
+    }
+  }
   /**
    * 获取Access Token
    * 百度OCR需要先获取token才能调用API
@@ -28,7 +52,9 @@ export class OCRService {
       // Web 端走本地代理，避免 CORS
       const url =
         Platform.OS === 'web'
-          ? `${WEB_PROXY_CONFIG.BASE_URL}/api/baidu/token`
+          ? `${WEB_PROXY_CONFIG.BASE_URL}/api/baidu/token?apiKey=${encodeURIComponent(
+              BAIDU_OCR_CONFIG.API_KEY
+            )}&secretKey=${encodeURIComponent(BAIDU_OCR_CONFIG.SECRET_KEY)}`
           : `${BAIDU_OCR_CONFIG.TOKEN_URL}?grant_type=client_credentials&client_id=${BAIDU_OCR_CONFIG.API_KEY}&client_secret=${BAIDU_OCR_CONFIG.SECRET_KEY}`;
       
       console.log('请求Token URL:', Platform.OS === 'web' ? url : BAIDU_OCR_CONFIG.TOKEN_URL);
@@ -179,10 +205,15 @@ export class OCRService {
       if (Platform.OS === 'web') {
         console.log('步骤3(Web): 调用本地代理 OCR');
         const proxyUrl = `${WEB_PROXY_CONFIG.BASE_URL}/api/baidu/ocr`;
+        if (!base64Image) {
+          throw new Error('图片处理失败：未获取到 base64 数据');
+        }
         const response = await fetch(proxyUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            apiKey: BAIDU_OCR_CONFIG.API_KEY,
+            secretKey: BAIDU_OCR_CONFIG.SECRET_KEY,
             imageBase64: base64Image,
             ocrUrl: BAIDU_OCR_CONFIG.OCR_URL,
           }),
@@ -363,6 +394,7 @@ export class OCRService {
 
       // 2. 从识别结果中提取药品信息
       const ocrMedicineInfo = this.extractMedicineInfo(ocrResult);
+      const ocrRawText = ocrMedicineInfo.rawText || '';
 
       // 3. 如果识别到药品名称，查询药物数据库获取详细信息
       let dbMedicineInfo = null;
@@ -385,8 +417,40 @@ export class OCRService {
         return merged;
       }
 
-      // 如果数据库查询失败或未启用，仅返回OCR结果
-      console.log('返回OCR识别结果（无数据库信息）:', ocrMedicineInfo);
+      // 5. 说明书接口缺失时：用 AI 生成简明说明（摘要）
+      if (ocrMedicineInfo.name) {
+        const cached = await this.getCachedMedicineGuide(ocrMedicineInfo.name);
+        if (cached) {
+          return {
+            ...ocrMedicineInfo,
+            ...cached,
+            hasDetails: true,
+            aiGenerated: true,
+          };
+        }
+
+        try {
+          const guide = await AIService.generateMedicineGuide({
+            name: ocrMedicineInfo.name,
+            dosage: ocrMedicineInfo.dosage,
+            frequency: ocrMedicineInfo.frequency,
+            ocrRawText,
+          });
+          const merged = {
+            ...ocrMedicineInfo,
+            ...guide,
+            hasDetails: true,
+            aiGenerated: true,
+          };
+          await this.cacheMedicineGuide(ocrMedicineInfo.name, guide);
+          return merged;
+        } catch (e) {
+          console.warn('AI药品说明生成失败，仅使用OCR结果:', e?.message || e);
+        }
+      }
+
+      // 如果数据库查询失败/AI不可用，仅返回OCR结果
+      console.log('返回OCR识别结果（无数据库/AI说明）:', ocrMedicineInfo);
       return ocrMedicineInfo;
     } catch (error) {
       console.error('识别药品信息失败:', error);

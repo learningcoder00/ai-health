@@ -1,8 +1,9 @@
 import { DeviceService } from './DeviceService';
 import { MedicineService } from './MedicineService';
+import { AIService } from './AIService';
 
 export class ReportService {
-  static async generateReport(type = 'week') {
+  static async generateReport(type = 'week', useAI = false) {
     try {
       const healthData = await DeviceService.getHealthData();
       const medicines = await MedicineService.getAllMedicines();
@@ -68,13 +69,43 @@ export class ReportService {
         type
       );
 
-      // 生成健康建议
-      const recommendations = this.generateRecommendations({
-        heartRate: avgHeartRate,
-        bloodGlucose: parseFloat(avgBloodGlucose),
-        sleep: parseFloat(avgSleep),
-        medicineCount: medicines.length,
-      });
+      // 生成健康建议（优先使用AI，失败则使用规则）
+      let recommendations = [];
+      let aiAnalysis = null;
+
+      if (useAI) {
+        try {
+          aiAnalysis = await AIService.generateHealthAnalysis({
+            avgHeartRate,
+            avgBloodGlucose,
+            avgSleep,
+            healthScore,
+            medicineCount: medicines.length,
+          });
+          // AI分析作为详细分析，规则建议作为快速建议
+          recommendations = this.generateRecommendations({
+            heartRate: avgHeartRate,
+            bloodGlucose: parseFloat(avgBloodGlucose),
+            sleep: parseFloat(avgSleep),
+            medicineCount: medicines.length,
+          });
+        } catch (error) {
+          console.warn('AI分析失败，使用规则建议:', error);
+          recommendations = this.generateRecommendations({
+            heartRate: avgHeartRate,
+            bloodGlucose: parseFloat(avgBloodGlucose),
+            sleep: parseFloat(avgSleep),
+            medicineCount: medicines.length,
+          });
+        }
+      } else {
+        recommendations = this.generateRecommendations({
+          heartRate: avgHeartRate,
+          bloodGlucose: parseFloat(avgBloodGlucose),
+          sleep: parseFloat(avgSleep),
+          medicineCount: medicines.length,
+        });
+      }
 
       return {
         type,
@@ -85,6 +116,7 @@ export class ReportService {
         healthScore,
         trends,
         recommendations,
+        aiAnalysis, // AI生成的详细分析
         medicineCount: medicines.length,
         generatedAt: now.toISOString(),
       };

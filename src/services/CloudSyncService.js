@@ -42,6 +42,16 @@ export class CloudSyncService {
     await SecureStorage.setItem(CLOUD_META_KEY, meta);
   }
 
+  // 仅获取云端 revision/updatedAt 并写入本地 meta（不会覆盖本地数据）
+  static async refreshCloudMeta() {
+    const token = await AuthService.getToken();
+    if (!token) throw new Error('未登录');
+    const remote = await httpJson('/data', { method: 'GET', token });
+    const meta = { revision: remote?.revision || null, updatedAt: remote?.updatedAt || null };
+    await this.setCloudMeta(meta);
+    return meta;
+  }
+
   static async buildLocalSnapshot() {
     const snapshot = {};
     for (const key of SNAPSHOT_KEYS) {
@@ -54,7 +64,8 @@ export class CloudSyncService {
     if (!snapshot || typeof snapshot !== 'object') return;
     for (const key of SNAPSHOT_KEYS) {
       if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
-        await SecureStorage.setItem(key, snapshot[key]);
+        // 从云端下载应用到本地时，避免触发“自动上传”回写
+        await SecureStorage.setItem(key, snapshot[key], { silent: true });
       }
     }
   }
@@ -104,7 +115,8 @@ export class CloudSyncService {
     const remote = await httpJson('/data', { method: 'GET', token });
     const remoteProfile = remote?.profile || null;
     const remoteData = remote?.snapshot?.data || null;
-    if (remoteProfile) await SecureStorage.setItem('@user_profile', remoteProfile);
+    // 下载覆盖本地时，避免触发“自动上传”回写
+    if (remoteProfile) await SecureStorage.setItem('@user_profile', remoteProfile, { silent: true });
     if (remoteData) await this.applySnapshot(remoteData);
     if (remote?.revision) {
       await this.setCloudMeta({ revision: remote.revision, updatedAt: remote.updatedAt || null });
