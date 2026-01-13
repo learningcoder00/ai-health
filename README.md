@@ -402,26 +402,7 @@ eas build -p android --profile preview
 eas build -p ios --profile preview
 ```
 
-## 🤝 贡献指南
 
-欢迎提交 Issue 和 Pull Request！
 
-## 📄 许可证
 
-MIT License
 
-## 👨‍💻 开发者
-
-- 项目作者：[Your Name]
-- 联系方式：[Your Email]
-
-## 🙏 致谢
-
-- [Expo](https://expo.dev/) - 跨平台开发框架
-- [SiliconFlow](https://siliconflow.cn/) - AI 服务提供商
-- [React Native Paper](https://callstack.github.io/react-native-paper/) - UI 组件库
-- [百度智能云](https://cloud.baidu.com/) - OCR 服务
-
----
-
-**注意**：本项目仅供学习交流使用，生成的健康建议不能替代专业医疗意见，重要问题请咨询医生。
