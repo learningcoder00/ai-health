@@ -141,7 +141,11 @@ export default function AIScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.containerContent}
+      keyboardShouldPersistTaps="handled"
+    >
       <Card style={styles.card}>
         <Card.Content>
           <View style={styles.headerRow}>
@@ -169,7 +173,14 @@ export default function AIScreen() {
             </Paragraph>
             <Divider style={styles.divider} />
 
-            <ScrollView ref={chatScrollRef} style={styles.chatBox}>
+            <ScrollView
+              ref={chatScrollRef}
+              style={styles.chatBox}
+              contentContainerStyle={styles.chatBoxContent}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+            >
               {chatMessages.map((m, idx) => (
                 <View
                   key={idx}
@@ -297,7 +308,7 @@ export default function AIScreen() {
           </Dialog.Actions>
         </Dialog>
       </Portal>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -305,6 +316,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
+  },
+  containerContent: {
     padding: theme.spacing.md,
     gap: theme.spacing.md,
   },
@@ -342,8 +355,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.outlineVariant,
     borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.sm,
     backgroundColor: theme.colors.surfaceVariant,
+  },
+  chatBoxContent: {
+    padding: theme.spacing.sm,
   },
   chatBubble: {
     padding: theme.spacing.sm,

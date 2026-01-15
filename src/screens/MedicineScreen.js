@@ -30,6 +30,7 @@ import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import ClockIcon from '../components/ClockIcon';
 import DatePicker from '../components/DatePicker';
+import AIGeneratedIcon from '../components/AIGeneratedIcon';
 import { theme } from '../theme';
 import { MedicineService } from '../services/MedicineService';
 import { ExportService } from '../services/ExportService';
@@ -1403,7 +1404,11 @@ export default function MedicineScreen() {
                             medicineDetails.aiGenerated ? styles.sourceChipAI : styles.sourceChipDb,
                           ]}
                           textStyle={styles.sourceChipText}
-                          icon={medicineDetails.aiGenerated ? 'sparkles' : 'file-document-outline'}
+                          icon={
+                            medicineDetails.aiGenerated
+                              ? ({ size, color }) => <AIGeneratedIcon size={size} color={color} />
+                              : 'file-document-outline'
+                          }
                         >
                           {medicineDetails.aiGenerated ? 'AI生成' : '说明书'}
                         </Chip>
