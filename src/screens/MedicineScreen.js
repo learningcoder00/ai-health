@@ -92,6 +92,7 @@ export default function MedicineScreen() {
   const [historyVisible, setHistoryVisible] = useState(false);
   const [historyText, setHistoryText] = useState('');
   const [activeMedicineForHistory, setActiveMedicineForHistory] = useState(null);
+  const [historyStartDate, setHistoryStartDate] = useState(''); // 历史记录的起始日期
 
   // 新：漏服补服指导
   const [guidanceVisible, setGuidanceVisible] = useState(false);
@@ -388,21 +389,47 @@ export default function MedicineScreen() {
     }
   };
 
-  const openHistory = async (medicine) => {
-    setActiveMedicineForHistory(medicine);
-    setHistoryVisible(true);
+  const loadHistoryData = async (medicine, startDateStr) => {
     try {
-      const days = 7; // 固定显示最近7天
+      const days = 7; // 固定显示7天
       const reminders = await MedicineService.getRemindersForMedicine(medicine.id);
       const logs = await MedicineService.getIntakeLogs(medicine.id);
-      const now = new Date();
-      // 计算7天前的开始时间（包含今天，共7天：从7天前到今天）
-      const start = new Date(now);
-      start.setDate(start.getDate() - (days - 1));
-      start.setHours(0, 0, 0, 0);
-      // 结束时间是今天23:59:59
-      const end = new Date(now);
-      end.setHours(23, 59, 59, 999);
+      
+      // 安全解析日期字符串（避免时区问题）
+      const parseLocalDate = (dateStr) => {
+        if (!dateStr) return null;
+        const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (match) {
+          const year = parseInt(match[1], 10);
+          const month = parseInt(match[2], 10) - 1; // 月份从0开始
+          const day = parseInt(match[3], 10);
+          return new Date(year, month, day);
+        }
+        return null;
+      };
+      
+      // 确定起始日期
+      let startDate;
+      if (startDateStr) {
+        startDate = parseLocalDate(startDateStr);
+        if (!startDate) {
+          // 如果解析失败，使用默认值
+          const now = new Date();
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          startDate.setDate(startDate.getDate() - (days - 1));
+        }
+      } else {
+        // 如果没有指定起始日期，默认显示最近7天
+        const now = new Date();
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        startDate.setDate(startDate.getDate() - (days - 1));
+      }
+      startDate.setHours(0, 0, 0, 0);
+      
+      // 计算结束日期（起始日期后7天）
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + days - 1);
+      endDate.setHours(23, 59, 59, 999);
       
       const items = reminders
         .filter((r) => {
@@ -411,11 +438,28 @@ export default function MedicineScreen() {
             const scheduledDate = new Date(r.scheduledAt);
             if (isNaN(scheduledDate.getTime())) return false;
             // 只比较日期部分，忽略时间，确保同一天的所有提醒都能显示
-            const scheduledDateOnly = new Date(scheduledDate.getFullYear(), scheduledDate.getMonth(), scheduledDate.getDate());
-            const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-            const endDateOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-            return scheduledDateOnly >= startDateOnly && scheduledDateOnly <= endDateOnly;
+            const scheduledDateOnly = new Date(
+              scheduledDate.getFullYear(), 
+              scheduledDate.getMonth(), 
+              scheduledDate.getDate()
+            );
+            const startDateOnly = new Date(
+              startDate.getFullYear(), 
+              startDate.getMonth(), 
+              startDate.getDate()
+            );
+            const endDateOnly = new Date(
+              endDate.getFullYear(), 
+              endDate.getMonth(), 
+              endDate.getDate()
+            );
+            // 使用时间戳比较，更可靠
+            const scheduledTime = scheduledDateOnly.getTime();
+            const startTime = startDateOnly.getTime();
+            const endTime = endDateOnly.getTime();
+            return scheduledTime >= startTime && scheduledTime <= endTime;
           } catch (e) {
+            console.warn('过滤提醒记录时出错:', e, r);
             return false;
           }
         })
@@ -428,6 +472,8 @@ export default function MedicineScreen() {
             return 0;
           }
         }); // 最早的在前（从上到下按时间顺序）
+      
+      console.log('过滤后的记录数:', items.length);
       
       // 转换为结构化数据
       const structuredItems = items.map((r) => {
@@ -444,7 +490,9 @@ export default function MedicineScreen() {
       
       // 保留原有的文本格式作为备用
       const lines = [];
-      lines.push(`近 ${days} 天时间轴（${medicine.name}）`);
+      const startDateFormatted = startDate.toLocaleDateString('zh-CN');
+      const endDateFormatted = endDate.toLocaleDateString('zh-CN');
+      lines.push(`${startDateFormatted} 至 ${endDateFormatted} 时间轴（${medicine.name}）`);
       lines.push('—');
       for (const r of items) {
         const t = new Date(r.scheduledAt);
@@ -476,6 +524,39 @@ export default function MedicineScreen() {
     } catch (e) {
       setHistoryText(`加载失败：${e?.message || '未知错误'}`);
     }
+  };
+
+  const openHistory = async (medicine) => {
+    setActiveMedicineForHistory(medicine);
+    // 初始化起始日期
+    const therapyStartDate = medicine?.reminderConfig?.startDate;
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const defaultStartDate = new Date(now);
+    defaultStartDate.setDate(defaultStartDate.getDate() - 6); // 最近7天的起始日期
+    const defaultStartDateStr = defaultStartDate.toISOString().split('T')[0];
+    
+    // 确定初始起始日期：
+    // 1. 如果疗程开始日期存在，且不晚于今天，优先使用疗程开始日期
+    // 2. 如果疗程开始日期晚于默认起始日期，使用默认起始日期（最近7天）
+    // 3. 否则使用疗程开始日期
+    let initialStartDate = defaultStartDateStr;
+    if (therapyStartDate) {
+      const therapyStart = new Date(therapyStartDate);
+      const todayDate = new Date(today);
+      if (therapyStart <= todayDate) {
+        // 疗程开始日期不晚于今天，可以使用
+        if (therapyStart <= defaultStartDate) {
+          // 疗程开始日期早于或等于默认起始日期，使用疗程开始日期
+          initialStartDate = therapyStartDate;
+        }
+        // 否则使用默认起始日期（最近7天）
+      }
+    }
+    
+    setHistoryStartDate(initialStartDate);
+    setHistoryVisible(true);
+    await loadHistoryData(medicine, initialStartDate);
   };
 
   const showMakeupGuidance = (medicineId, reminder) => {
@@ -511,6 +592,135 @@ export default function MedicineScreen() {
       Alert.alert('失败', e.message || '加载统计失败');
     }
   };
+
+  // 提醒设置表单主体（用于 Web/移动端不同滚动容器复用）
+  const ReminderSettingsForm = () => (
+    <>
+      <View style={styles.switchRow}>
+        <Text>启用提醒</Text>
+        <Switch
+          value={reminderEnabled && !reminderPaused}
+          onValueChange={(value) => {
+            if (value) {
+              // 开启：启用且不暂停
+              setReminderEnabled(true);
+              setReminderPaused(false);
+            } else {
+              // 关闭：暂停提醒（保持启用状态，只是暂停）
+              setReminderPaused(true);
+            }
+          }}
+        />
+      </View>
+
+      <SegmentedButtons
+        value={reminderMode}
+        onValueChange={setReminderMode}
+        buttons={[
+          { value: 'fixed_times', label: '定点' },
+          { value: 'times_per_day', label: '每日N次' },
+          { value: 'interval_hours', label: '间隔' },
+          { value: 'prn', label: '按需' },
+        ]}
+        style={{ marginBottom: theme.spacing.md }}
+      />
+
+      {reminderMode === 'fixed_times' && (
+        <TextInput
+          label="每天提醒时间点（逗号分隔，如 08:00,14:00,20:00）"
+          value={reminderTimesText}
+          onChangeText={setReminderTimesText}
+          mode="outlined"
+          style={styles.input}
+        />
+      )}
+      {reminderMode === 'times_per_day' && (
+        <TextInput
+          label="每日次数（1-12）"
+          value={timesPerDay}
+          onChangeText={setTimesPerDay}
+          mode="outlined"
+          keyboardType="numeric"
+          style={styles.input}
+        />
+      )}
+      {reminderMode === 'interval_hours' && (
+        <>
+          <TextInput
+            label="间隔小时（1-24）"
+            value={intervalHours}
+            onChangeText={setIntervalHours}
+            mode="outlined"
+            keyboardType="numeric"
+            style={styles.input}
+          />
+          <TextInput
+            label="起始时间（HH:MM）"
+            value={intervalStartTime}
+            onChangeText={setIntervalStartTime}
+            mode="outlined"
+            style={styles.input}
+          />
+        </>
+      )}
+      {reminderMode === 'prn' && (
+        <Paragraph style={styles.hintText}>
+          按需用药：不会生成系统提醒，但会保留用药方案信息用于展示和历史统计。
+        </Paragraph>
+      )}
+
+      <SegmentedButtons
+        value={mealTag}
+        onValueChange={setMealTag}
+        buttons={[
+          { value: 'none', label: '不限' },
+          { value: 'before_meal', label: '饭前' },
+          { value: 'after_meal', label: '饭后' },
+          { value: 'bedtime', label: '睡前' },
+        ]}
+        style={{ marginBottom: theme.spacing.md }}
+      />
+
+      <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
+        <TextInput
+          label="每次用量"
+          value={doseAmount}
+          onChangeText={setDoseAmount}
+          mode="outlined"
+          keyboardType="numeric"
+          style={[styles.input, { flex: 1 }]}
+        />
+        <TextInput
+          label="单位（片/粒/ml…）"
+          value={doseUnit}
+          onChangeText={setDoseUnit}
+          mode="outlined"
+          style={[styles.input, { flex: 1 }]}
+        />
+      </View>
+
+      <DatePicker
+        label="疗程开始日期"
+        value={therapyStartDate}
+        onChange={setTherapyStartDate}
+        required={true}
+        style={styles.input}
+        minimumDate={undefined}
+        maximumDate={therapyEndDate || undefined}
+      />
+      <DatePicker
+        label="疗程结束日期（可选）"
+        value={therapyEndDate}
+        onChange={setTherapyEndDate}
+        required={false}
+        style={styles.input}
+        minimumDate={therapyStartDate || undefined}
+      />
+      <Paragraph style={styles.hintText}>
+        提示：保存后会重建未来提醒（最多生成未来30天或到疗程结束日）。Web 端系统通知能力受限，但应用内提醒/打卡仍可用。
+      </Paragraph>
+    </>
+  );
 
   const showImageSourceDialog = () => {
     setSourceDialogVisible(true);
@@ -1349,131 +1559,22 @@ export default function MedicineScreen() {
           } : {}}
         >
           <Dialog.Title>提醒设置</Dialog.Title>
-          <Dialog.Content style={Platform.OS === 'web' ? { maxHeight: '70vh', overflow: 'auto' } : {}}>
-            <ScrollView style={{ maxHeight: Platform.OS === 'web' ? '70vh' : 500 }} showsVerticalScrollIndicator={true}>
-            <View style={styles.switchRow}>
-              <Text>启用提醒</Text>
-              <Switch 
-                value={reminderEnabled && !reminderPaused} 
-                onValueChange={(value) => {
-                  if (value) {
-                    // 开启：启用且不暂停
-                    setReminderEnabled(true);
-                    setReminderPaused(false);
-                  } else {
-                    // 关闭：暂停提醒（保持启用状态，只是暂停）
-                    setReminderPaused(true);
-                  }
-                }} 
-              />
-            </View>
-
-            <SegmentedButtons
-              value={reminderMode}
-              onValueChange={setReminderMode}
-              buttons={[
-                { value: 'fixed_times', label: '定点' },
-                { value: 'times_per_day', label: '每日N次' },
-                { value: 'interval_hours', label: '间隔' },
-                { value: 'prn', label: '按需' },
-              ]}
-              style={{ marginBottom: theme.spacing.md }}
-            />
-
-            {reminderMode === 'fixed_times' && (
-              <TextInput
-                label="每天提醒时间点（逗号分隔，如 08:00,14:00,20:00）"
-                value={reminderTimesText}
-                onChangeText={setReminderTimesText}
-                mode="outlined"
-                style={styles.input}
-              />
+          <Dialog.Content
+            style={
+              Platform.OS === 'web'
+                ? { maxHeight: '70vh', overflow: 'auto', paddingRight: 12 }
+                : {}
+            }
+          >
+            {Platform.OS === 'web' ? (
+              <View>
+                <ReminderSettingsForm />
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 500 }} showsVerticalScrollIndicator={false}>
+                <ReminderSettingsForm />
+              </ScrollView>
             )}
-            {reminderMode === 'times_per_day' && (
-              <TextInput
-                label="每日次数（1-12）"
-                value={timesPerDay}
-                onChangeText={setTimesPerDay}
-                mode="outlined"
-                keyboardType="numeric"
-                style={styles.input}
-              />
-            )}
-            {reminderMode === 'interval_hours' && (
-              <>
-                <TextInput
-                  label="间隔小时（1-24）"
-                  value={intervalHours}
-                  onChangeText={setIntervalHours}
-                  mode="outlined"
-                  keyboardType="numeric"
-                  style={styles.input}
-                />
-                <TextInput
-                  label="起始时间（HH:MM）"
-                  value={intervalStartTime}
-                  onChangeText={setIntervalStartTime}
-                  mode="outlined"
-                  style={styles.input}
-                />
-              </>
-            )}
-            {reminderMode === 'prn' && (
-              <Paragraph style={styles.hintText}>
-                按需用药：不会生成系统提醒，但会保留用药方案信息用于展示和历史统计。
-              </Paragraph>
-            )}
-
-            <SegmentedButtons
-              value={mealTag}
-              onValueChange={setMealTag}
-              buttons={[
-                { value: 'none', label: '不限' },
-                { value: 'before_meal', label: '饭前' },
-                { value: 'after_meal', label: '饭后' },
-                { value: 'bedtime', label: '睡前' },
-              ]}
-              style={{ marginBottom: theme.spacing.md }}
-            />
-
-            <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
-              <TextInput
-                label="每次用量"
-                value={doseAmount}
-                onChangeText={setDoseAmount}
-                mode="outlined"
-                keyboardType="numeric"
-                style={[styles.input, { flex: 1 }]}
-              />
-              <TextInput
-                label="单位（片/粒/ml…）"
-                value={doseUnit}
-                onChangeText={setDoseUnit}
-                mode="outlined"
-                style={[styles.input, { flex: 1 }]}
-              />
-            </View>
-            <DatePicker
-              label="疗程开始日期"
-              value={therapyStartDate}
-              onChange={setTherapyStartDate}
-              required={true}
-              style={styles.input}
-              minimumDate={undefined}
-              maximumDate={therapyEndDate || undefined}
-            />
-            <DatePicker
-              label="疗程结束日期（可选）"
-              value={therapyEndDate}
-              onChange={setTherapyEndDate}
-              required={false}
-              style={styles.input}
-              minimumDate={therapyStartDate || undefined}
-            />
-            <Paragraph style={styles.hintText}>
-              提示：保存后会重建未来提醒（最多生成未来30天或到疗程结束日）。Web 端系统通知能力受限，但应用内提醒/打卡仍可用。
-            </Paragraph>
-            </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setReminderSettingsVisible(false)}>取消</Button>
@@ -1611,7 +1712,10 @@ export default function MedicineScreen() {
         {/* 历史时间轴对话框 */}
         <Dialog 
           visible={historyVisible} 
-          onDismiss={() => setHistoryVisible(false)}
+          onDismiss={() => {
+            setHistoryVisible(false);
+            setHistoryStartDate('');
+          }}
           style={Platform.OS === 'web' ? { 
             maxWidth: '90vw',
             width: '800px',
@@ -1629,7 +1733,23 @@ export default function MedicineScreen() {
             {activeMedicineForHistory && (
               <View style={styles.historyHeader}>
                 <Text style={styles.historyMedicineName}>{activeMedicineForHistory.name}</Text>
-                <Text style={styles.historySubtitle}>最近 7 天用药记录</Text>
+                <Text style={styles.historySubtitle}>选择起始日期，查看之后 7 天的用药记录</Text>
+              </View>
+            )}
+            {activeMedicineForHistory && (
+              <View style={styles.historyDatePickerContainer}>
+                <DatePicker
+                  label="起始日期"
+                  value={historyStartDate}
+                  onChange={async (date) => {
+                    setHistoryStartDate(date);
+                    await loadHistoryData(activeMedicineForHistory, date);
+                  }}
+                  required={true}
+                  style={styles.historyDatePicker}
+                  minimumDate={activeMedicineForHistory?.reminderConfig?.startDate || undefined}
+                  maximumDate={new Date().toISOString().split('T')[0]}
+                />
               </View>
             )}
             <ScrollView style={{ maxHeight: 400 }}>
@@ -1679,7 +1799,10 @@ export default function MedicineScreen() {
             </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setHistoryVisible(false)}>关闭</Button>
+            <Button onPress={() => {
+              setHistoryVisible(false);
+              setHistoryStartDate('');
+            }}>关闭</Button>
           </Dialog.Actions>
         </Dialog>
 
@@ -2093,6 +2216,12 @@ const styles = StyleSheet.create({
   historySubtitle: {
     fontSize: 14,
     color: theme.colors.textSecondary,
+  },
+  historyDatePickerContainer: {
+    marginBottom: theme.spacing.md,
+  },
+  historyDatePicker: {
+    marginBottom: theme.spacing.sm,
   },
   historyEmpty: {
     alignItems: 'center',

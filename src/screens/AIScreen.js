@@ -15,6 +15,7 @@ import {
 } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
 import AIIcon from '../components/AIIcon';
+import SuggestionIcon from '../components/SuggestionIcon';
 import { theme } from '../theme';
 import { AIService } from '../services/AIService';
 import { MedicineService } from '../services/MedicineService';
@@ -256,7 +257,14 @@ export default function AIScreen() {
             </Paragraph>
             <Divider style={styles.divider} />
 
-            <Button mode="contained" icon="sparkles" onPress={generateAdvice} loading={adviceLoading}>
+            <Button
+              mode="contained"
+              icon={({ size, color }) => (
+                <SuggestionIcon size={size} color={color} focused={false} />
+              )}
+              onPress={generateAdvice}
+              loading={adviceLoading}
+            >
               生成建议
             </Button>
 
