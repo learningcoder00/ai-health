@@ -46,17 +46,11 @@ const LogoTitle = () => {
     if (navigationRef.isReady()) {
       const currentRoute = navigationRef.getCurrentRoute();
       
-      // 如果当前在首页，触发刷新（通过重新导航）
-      if (currentRoute?.name === '首页') {
-        // 先导航到其他页面再返回，触发 useEffect 重新加载
-        navigationRef.navigate('药品');
-        setTimeout(() => {
-          navigationRef.navigate('首页');
-        }, 50);
-      } else {
-        // 否则直接跳转到首页
+      // 如果当前不在首页，则跳转到首页
+      if (currentRoute?.name !== '首页') {
         navigationRef.navigate('首页');
       }
+      // 如果已经在首页，点击 logo 不做任何操作（或者可以触发刷新）
     }
   };
 

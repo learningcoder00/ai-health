@@ -29,6 +29,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import ClockIcon from '../components/ClockIcon';
+import DatePicker from '../components/DatePicker';
 import { theme } from '../theme';
 import { MedicineService } from '../services/MedicineService';
 import { ExportService } from '../services/ExportService';
@@ -62,9 +63,10 @@ export default function MedicineScreen() {
   const [reminderEnabled, setReminderEnabled] = useState(true);
   const [reminderPaused, setReminderPaused] = useState(false);
   const [reminderTimesText, setReminderTimesText] = useState('08:00,20:00');
-  const [therapyStartDate, setTherapyStartDate] = useState('');
+  // 开始日期默认为今天（必填）
+  const getTodayDate = () => new Date().toISOString().split('T')[0];
+  const [therapyStartDate, setTherapyStartDate] = useState(getTodayDate());
   const [therapyEndDate, setTherapyEndDate] = useState('');
-  const [statsDays, setStatsDays] = useState('7');
   const [statsData, setStatsData] = useState(null);
 
   // 新：结构化用药/提醒规则
@@ -246,7 +248,9 @@ export default function MedicineScreen() {
     setMealTag(String(cfg.mealTag || 'none'));
     setDoseAmount(String(cfg.doseAmount || (medicine.dosage?.match(/([0-9]+(?:\.[0-9]+)?)/)?.[1] || '1')));
     setDoseUnit(String(cfg.doseUnit || (medicine.dosage?.match(/([^\d\s/]+)\s*$/)?.[1] || '片')));
-    setTherapyStartDate(cfg.startDate || '');
+    // 开始日期必填，如果没有则默认为今天
+    const today = new Date().toISOString().split('T')[0];
+    setTherapyStartDate(cfg.startDate || today);
     setTherapyEndDate(cfg.endDate || '');
     setReminderSettingsVisible(true);
   };
@@ -388,16 +392,42 @@ export default function MedicineScreen() {
     setActiveMedicineForHistory(medicine);
     setHistoryVisible(true);
     try {
-      const days = 30; // 固定显示最近30天
+      const days = 7; // 固定显示最近7天
       const reminders = await MedicineService.getRemindersForMedicine(medicine.id);
       const logs = await MedicineService.getIntakeLogs(medicine.id);
-      const start = new Date();
+      const now = new Date();
+      // 计算7天前的开始时间（包含今天，共7天：从7天前到今天）
+      const start = new Date(now);
       start.setDate(start.getDate() - (days - 1));
       start.setHours(0, 0, 0, 0);
+      // 结束时间是今天23:59:59
+      const end = new Date(now);
+      end.setHours(23, 59, 59, 999);
       
       const items = reminders
-        .filter((r) => new Date(r.scheduledAt) >= start)
-        .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt)); // 最早的在前（从上到下按时间顺序）
+        .filter((r) => {
+          if (!r || !r.scheduledAt) return false;
+          try {
+            const scheduledDate = new Date(r.scheduledAt);
+            if (isNaN(scheduledDate.getTime())) return false;
+            // 只比较日期部分，忽略时间，确保同一天的所有提醒都能显示
+            const scheduledDateOnly = new Date(scheduledDate.getFullYear(), scheduledDate.getMonth(), scheduledDate.getDate());
+            const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+            const endDateOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+            return scheduledDateOnly >= startDateOnly && scheduledDateOnly <= endDateOnly;
+          } catch (e) {
+            return false;
+          }
+        })
+        .sort((a, b) => {
+          try {
+            const dateA = new Date(a.scheduledAt);
+            const dateB = new Date(b.scheduledAt);
+            return dateA - dateB;
+          } catch (e) {
+            return 0;
+          }
+        }); // 最早的在前（从上到下按时间顺序）
       
       // 转换为结构化数据
       const structuredItems = items.map((r) => {
@@ -473,7 +503,8 @@ export default function MedicineScreen() {
     setActiveMedicineForSettings(medicine);
     setStatsVisible(true);
     try {
-      const data = await MedicineService.getAdherenceStats(medicine.id, Number(statsDays));
+      // 固定显示最近7天的统计
+      const data = await MedicineService.getAdherenceStats(medicine.id, 7);
       setStatsData(data);
     } catch (e) {
       setStatsData(null);
@@ -1307,16 +1338,34 @@ export default function MedicineScreen() {
         </Dialog>
 
         {/* 提醒设置对话框 */}
-        <Dialog visible={reminderSettingsVisible} onDismiss={() => setReminderSettingsVisible(false)}>
+        <Dialog 
+          visible={reminderSettingsVisible} 
+          onDismiss={() => setReminderSettingsVisible(false)}
+          style={Platform.OS === 'web' ? { 
+            maxWidth: '90vw', 
+            maxHeight: '90vh',
+            alignSelf: 'center',
+            margin: 'auto'
+          } : {}}
+        >
           <Dialog.Title>提醒设置</Dialog.Title>
-          <Dialog.Content>
+          <Dialog.Content style={Platform.OS === 'web' ? { maxHeight: '70vh', overflow: 'auto' } : {}}>
+            <ScrollView style={{ maxHeight: Platform.OS === 'web' ? '70vh' : 500 }} showsVerticalScrollIndicator={true}>
             <View style={styles.switchRow}>
               <Text>启用提醒</Text>
-              <Switch value={reminderEnabled} onValueChange={setReminderEnabled} />
-            </View>
-            <View style={styles.switchRow}>
-              <Text>暂停提醒</Text>
-              <Switch value={reminderPaused} onValueChange={setReminderPaused} />
+              <Switch 
+                value={reminderEnabled && !reminderPaused} 
+                onValueChange={(value) => {
+                  if (value) {
+                    // 开启：启用且不暂停
+                    setReminderEnabled(true);
+                    setReminderPaused(false);
+                  } else {
+                    // 关闭：暂停提醒（保持启用状态，只是暂停）
+                    setReminderPaused(true);
+                  }
+                }} 
+              />
             </View>
 
             <SegmentedButtons
@@ -1404,23 +1453,27 @@ export default function MedicineScreen() {
                 style={[styles.input, { flex: 1 }]}
               />
             </View>
-            <TextInput
-              label="疗程开始日期（YYYY-MM-DD，可空）"
+            <DatePicker
+              label="疗程开始日期"
               value={therapyStartDate}
-              onChangeText={setTherapyStartDate}
-              mode="outlined"
+              onChange={setTherapyStartDate}
+              required={true}
               style={styles.input}
+              minimumDate={undefined}
+              maximumDate={therapyEndDate || undefined}
             />
-            <TextInput
-              label="疗程结束日期（YYYY-MM-DD，可空）"
+            <DatePicker
+              label="疗程结束日期（可选）"
               value={therapyEndDate}
-              onChangeText={setTherapyEndDate}
-              mode="outlined"
+              onChange={setTherapyEndDate}
+              required={false}
               style={styles.input}
+              minimumDate={therapyStartDate || undefined}
             />
             <Paragraph style={styles.hintText}>
               提示：保存后会重建未来提醒（最多生成未来30天或到疗程结束日）。Web 端系统通知能力受限，但应用内提醒/打卡仍可用。
             </Paragraph>
+            </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setReminderSettingsVisible(false)}>取消</Button>
@@ -1429,55 +1482,70 @@ export default function MedicineScreen() {
         </Dialog>
 
         {/* 依从性统计对话框 */}
-        <Dialog visible={statsVisible} onDismiss={() => setStatsVisible(false)}>
-          <Dialog.Title>服药依从性统计</Dialog.Title>
+        <Dialog 
+          visible={statsVisible} 
+          onDismiss={() => setStatsVisible(false)}
+          style={Platform.OS === 'web' ? { 
+            alignSelf: 'center',
+            margin: 'auto'
+          } : {}}
+        >
+          <Dialog.Title>服药依从性统计（最近7天）</Dialog.Title>
           <Dialog.Content>
-            <SegmentedButtons
-              value={statsDays}
-              onValueChange={async (v) => {
-                setStatsDays(v);
-                if (activeMedicineForSettings) {
-                  const data = await MedicineService.getAdherenceStats(activeMedicineForSettings.id, Number(v));
-                  setStatsData(data);
-                }
-              }}
-              buttons={[
-                { value: '7', label: '7天' },
-                { value: '30', label: '30天' },
-              ]}
-              style={{ marginBottom: theme.spacing.md }}
-            />
-
             {statsData ? (
-              <>
-                <Paragraph>计划次数：{statsData.scheduled}</Paragraph>
-                <Paragraph>已服：{statsData.taken}　漏服：{statsData.missed}</Paragraph>
-                <Paragraph>依从率：{Math.round(statsData.adherenceRate * 100)}%</Paragraph>
-                <ProgressBar
-                  progress={statsData.adherenceRate}
-                  color={theme.colors.primary}
-                  style={{ marginTop: theme.spacing.sm, marginBottom: theme.spacing.md }}
-                />
-                <Button
-                  mode="outlined"
-                  icon="download"
-                  onPress={async () => {
-                    try {
-                      const result = await ExportService.exportIntakeLogs('csv');
-                      if (result.success) Alert.alert('成功', result.message || '服药记录已导出');
-                    } catch (e) {
-                      Alert.alert('失败', e.message || '导出失败');
-                    }
-                  }}
-                >
-                  导出服药记录
-                </Button>
-              </>
+              <View style={styles.statsContainer}>
+                <View style={styles.statsRow}>
+                  <View style={styles.statCard}>
+                    <Ionicons name="calendar-outline" size={24} color={theme.colors.primary} />
+                    <Text style={styles.statLabel}>计划次数</Text>
+                    <Text style={styles.statValue}>{statsData.scheduled}</Text>
+                  </View>
+                  <View style={styles.statCard}>
+                    <Ionicons name="checkmark-circle-outline" size={24} color={theme.colors.success} />
+                    <Text style={styles.statLabel}>已服</Text>
+                    <Text style={[styles.statValue, { color: theme.colors.success }]}>{statsData.taken}</Text>
+                  </View>
+                  <View style={styles.statCard}>
+                    <Ionicons name="close-circle-outline" size={24} color={theme.colors.error} />
+                    <Text style={styles.statLabel}>漏服</Text>
+                    <Text style={[styles.statValue, { color: theme.colors.error }]}>{statsData.missed}</Text>
+                  </View>
+                </View>
+                <View style={styles.adherenceCard}>
+                  <View style={styles.adherenceHeader}>
+                    <Ionicons name="trending-up-outline" size={20} color={theme.colors.primary} />
+                    <Text style={styles.adherenceLabel}>已服率</Text>
+                  </View>
+                  <Text style={styles.adherenceValue}>{Math.round(statsData.adherenceRate * 100)}%</Text>
+                  <ProgressBar
+                    progress={statsData.adherenceRate}
+                    color={statsData.adherenceRate >= 0.8 ? theme.colors.success : statsData.adherenceRate >= 0.6 ? theme.colors.warning : theme.colors.error}
+                    style={{ marginTop: theme.spacing.sm, height: 8, borderRadius: 4 }}
+                  />
+                </View>
+              </View>
             ) : (
-              <Paragraph>暂无数据</Paragraph>
+              <View style={styles.emptyStatsContainer}>
+                <Ionicons name="stats-chart-outline" size={48} color={theme.colors.textSecondary} />
+                <Paragraph style={{ marginTop: theme.spacing.md, textAlign: 'center' }}>暂无数据</Paragraph>
+              </View>
             )}
           </Dialog.Content>
           <Dialog.Actions>
+            <Button
+              mode="outlined"
+              icon="download"
+              onPress={async () => {
+                try {
+                  const result = await ExportService.exportIntakeLogs('csv');
+                  if (result.success) Alert.alert('成功', result.message || '服药记录已导出');
+                } catch (e) {
+                  Alert.alert('失败', e.message || '导出失败');
+                }
+              }}
+            >
+              导出服药记录
+            </Button>
             <Button onPress={() => setStatsVisible(false)}>关闭</Button>
           </Dialog.Actions>
         </Dialog>
@@ -1541,7 +1609,16 @@ export default function MedicineScreen() {
         </Dialog>
 
         {/* 历史时间轴对话框 */}
-        <Dialog visible={historyVisible} onDismiss={() => setHistoryVisible(false)}>
+        <Dialog 
+          visible={historyVisible} 
+          onDismiss={() => setHistoryVisible(false)}
+          style={Platform.OS === 'web' ? { 
+            maxWidth: '90vw',
+            width: '800px',
+            alignSelf: 'center',
+            margin: 'auto'
+          } : {}}
+        >
           <Dialog.Title>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Ionicons name="calendar-outline" size={22} color={theme.colors.primary} style={{ marginRight: 8 }} />
@@ -1552,10 +1629,10 @@ export default function MedicineScreen() {
             {activeMedicineForHistory && (
               <View style={styles.historyHeader}>
                 <Text style={styles.historyMedicineName}>{activeMedicineForHistory.name}</Text>
-                <Text style={styles.historySubtitle}>最近 30 天用药记录</Text>
+                <Text style={styles.historySubtitle}>最近 7 天用药记录</Text>
               </View>
             )}
-            <ScrollView style={{ maxHeight: 500 }}>
+            <ScrollView style={{ maxHeight: 400 }}>
               {historyItems.length === 0 ? (
                 <View style={styles.historyEmpty}>
                   <Ionicons name="calendar-outline" size={48} color={theme.colors.textSecondary} />
@@ -2029,6 +2106,63 @@ const styles = StyleSheet.create({
   },
   timeline: {
     paddingLeft: theme.spacing.sm,
+  },
+  statsContainer: {
+    gap: theme.spacing.md,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: 'center',
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surfaceVariant,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.xxs,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  adherenceCard: {
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+  },
+  adherenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
+  },
+  adherenceLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.colors.text,
+  },
+  adherenceValue: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+    marginBottom: theme.spacing.xs,
+  },
+  emptyStatsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: theme.spacing.xl,
   },
   timelineItem: {
     position: 'relative',

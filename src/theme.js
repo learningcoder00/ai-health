@@ -7,7 +7,7 @@ import { MD3LightTheme } from 'react-native-paper';
  */
 export const theme = {
   ...MD3LightTheme,
-  roundness: 14,
+  roundness: 8,
   colors: {
     ...MD3LightTheme.colors,
 
@@ -56,10 +56,10 @@ export const theme = {
     xxl: 40,
   },
   borderRadius: {
-    sm: 10,
-    md: 16,
-    lg: 20,
-    xl: 28,
+    sm: 4,
+    md: 8,
+    lg: 12,
+    xl: 16,
   },
   shadow: {
     // iOS shadow + Android elevation（按需在各 Screen 使用）

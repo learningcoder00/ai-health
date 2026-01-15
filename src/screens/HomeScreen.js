@@ -9,6 +9,22 @@ import { AuthService } from '../services/AuthService';
 
 const { width } = Dimensions.get('window');
 
+// 格式化日期时间为友好格式
+const formatSyncTime = (isoString) => {
+  if (!isoString) return '未知';
+  try {
+    const date = new Date(isoString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+  } catch {
+    return '未知';
+  }
+};
+
 export default function HomeScreen({ navigation, onLogout }) {
   const [syncing, setSyncing] = useState(false);
   const [accountDialogVisible, setAccountDialogVisible] = useState(false);
@@ -21,8 +37,8 @@ export default function HomeScreen({ navigation, onLogout }) {
     try {
       const profile = await AuthService.getProfile();
       let cloudMeta = await CloudSyncService.getCloudMeta();
-      // 如果本地还没有云端版本缓存，打开弹窗时主动向云端查询一次（不覆盖本地数据）
-      if (!cloudMeta?.revision) {
+      // 如果本地还没有云端同步时间缓存，打开弹窗时主动向云端查询一次（不覆盖本地数据）
+      if (!cloudMeta?.updatedAt) {
         try {
           cloudMeta = await CloudSyncService.refreshCloudMeta();
         } catch {
@@ -114,7 +130,7 @@ export default function HomeScreen({ navigation, onLogout }) {
               <Title style={styles.cardTitle}>账号与云同步</Title>
             </View>
             <Paragraph style={styles.cardDescription}>
-              查看账号信息、云端版本号，支持修改密码/退出/注销
+              查看账号信息、同步时间，支持修改密码/退出/注销
             </Paragraph>
           </Card.Content>
         </Card>
@@ -188,9 +204,9 @@ export default function HomeScreen({ navigation, onLogout }) {
                 : '当前未获取到用户资料'}
             </Paragraph>
             <Paragraph style={{ marginTop: theme.spacing.sm }}>
-              {accountInfo.cloudMeta?.revision
-                ? `云端版本：${accountInfo.cloudMeta.revision}（${accountInfo.cloudMeta.updatedAt || '未知时间'}）`
-                : '云端版本：暂无（建议先上传或下载）'}
+              {accountInfo.cloudMeta?.updatedAt
+                ? `上次同步时间：${formatSyncTime(accountInfo.cloudMeta.updatedAt)}`
+                : '上次同步时间：暂无（建议先上传或下载）'}
             </Paragraph>
           </Dialog.Content>
           <Dialog.Actions>

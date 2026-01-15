@@ -37,7 +37,8 @@ export function isValidISODate(dateStr) {
 export function validateDateRange(startDate, endDate) {
   const s = String(startDate || '').trim();
   const e = String(endDate || '').trim();
-  if (s && !isValidISODate(s)) return { ok: false, message: '疗程开始日期格式应为 YYYY-MM-DD' };
+  if (!s) return { ok: false, message: '疗程开始日期为必填项' };
+  if (!isValidISODate(s)) return { ok: false, message: '疗程开始日期格式应为 YYYY-MM-DD' };
   if (e && !isValidISODate(e)) return { ok: false, message: '疗程结束日期格式应为 YYYY-MM-DD' };
   if (s && e && s > e) return { ok: false, message: '疗程开始日期不能晚于结束日期' };
   return { ok: true, message: '' };
